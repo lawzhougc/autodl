@@ -1,0 +1,97 @@
+[
+  {
+    "stepTitle": "安装前请确认以下依赖",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "本应用本身只负责调度，实际下载依赖下面两个 fnOS 应用。安装程序会自动尝试安装并启动它们；如已安装则会跳过。"
+      },
+      {
+        "type": "tips",
+        "helpText": "① 光鸭云盘（guangyapan）— 提供「云下载」与「下载到 NAS」能力，默认端口 8998。装好后必须在应用内扫码登录，否则无法创建云任务。"
+      },
+      {
+        "type": "tips",
+        "helpText": "② Jackett — 资源搜索源，默认端口 9117。装好后需在 Jackett 网页里添加索引器（如 thepiratebay、knaben、therarbg、limetorrents、torrentgalaxyclone、uindex），否则搜不到任何资源。"
+      },
+      {
+        "type": "tips",
+        "helpText": "③ FlareSolverr（可选，Docker 容器）— 仅 uindex.org 这个搜索源需要它绕过 Cloudflare 验证。不装也能正常使用其余 6 个源。"
+      },
+      {
+        "type": "tips",
+        "helpText": "④ 命令行工具 aria2c（下载）、ffmpeg / ffprobe（字幕提取转换）为本机系统组件，缺失时安装完成后会给出提示。"
+      }
+    ]
+  },
+  {
+    "stepTitle": "媒体库与基础配置",
+    "items": [
+      {
+        "type": "text",
+        "field": "wizard_media_root",
+        "label": "媒体库目录",
+        "initValue": "/vol1/1000/媒体",
+        "rules": [
+          {
+            "required": true,
+            "message": "请填写媒体库目录"
+          },
+          {
+            "pattern": "^/",
+            "message": "请填写绝对路径（以 / 开头）"
+          }
+        ]
+      },
+      {
+        "type": "tips",
+        "helpText": "下载完成的影片会落到这个目录下：剧集放 媒体库/剧名/，电影直接放 媒体库/。安装后仍可在应用设置或 Web 控制台「资源筛选偏好」里修改。"
+      },
+      {
+        "type": "select",
+        "field": "wizard_quality",
+        "label": "首选画质",
+        "initValue": "2160p",
+        "options": [
+          {
+            "label": "2160p / 4K（推荐）",
+            "value": "2160p"
+          },
+          {
+            "label": "1080p",
+            "value": "1080p"
+          },
+          {
+            "label": "不限，4K 优先",
+            "value": "any"
+          }
+        ]
+      },
+      {
+        "type": "tips",
+        "helpText": "默认只下 4K；当某集/某片没有 4K 资源时，应用不会擅自降级，而是记录到事件里等你确认。"
+      }
+    ]
+  },
+  {
+    "stepTitle": "字幕账号（可选）",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "字幕优先从视频内封轨里提取，提取不到才去 SubHD 下载。若不填 SubHD 账号，仅影响需要外挂字幕的片源。"
+      },
+      {
+        "type": "text",
+        "field": "wizard_subhd_email",
+        "label": "SubHD 账号（可留空）",
+        "initValue": ""
+      },
+      {
+        "type": "password",
+        "field": "wizard_subhd_password",
+        "label": "SubHD 密码（可留空）",
+        "initValue": ""
+      }
+    ]
+  }
+]

@@ -1,0 +1,141 @@
+#!/bin/bash
+# 依赖探测与安装指引（被 install_callback / main 复用）
+#
+# 用法: depcheck [--quiet]
+#   输出每项依赖的状态；全部必需项就绪时返回 0，否则返回 1
+#   --quiet: 只显示缺失项与最终结论
+
+QUIET=0
+[ "$1" = "--quiet" ] && QUIET=1
+
+MISSING=""
+MISSING_APP=""
+
+ok()   { [ "$QUIET" = "1" ] || echo "  [OK]   $1"; }
+warn() { echo "  [缺失] $1"; }
+info() { [ "$QUIET" = "1" ] || echo "         $1"; }
+miss() { MISSING="${MISSING}${MISSING:+, }$1"; }
+
+http_code() {
+    curl -s -m "${2:-3}" -o /dev/null -w "%{http_code}" "$1" 2>/dev/null || echo "000"
+}
+
+jackett_key() {
+    local cfg="${JACKETT_CONFIG:-/vol1/@appdata/jackett/data/ServerConfig.json}"
+    [ -f "$cfg" ] || return 1
+    python3 -c "import json;print(json.load(open('$cfg'))['APIKey'])" 2>/dev/null
+}
+
+echo "== 影视资源自动追踪控制台 · 依赖检查 =="
+
+# ---------- 1. 命令行工具 ----------
+echo "【命令行工具】"
+for tool in python3 aria2c ffmpeg ffprobe; do
+    if command -v "$tool" >/dev/null 2>&1; then
+        ok "$tool"
+    else
+        warn "$tool"
+        miss "$tool"
+        case "$tool" in
+            aria2c)  info "NAS 下载必需。fnOS 应用中心搜「aria2」安装，或 apt install aria2" ;;
+            ffmpeg|ffprobe) info "字幕转换/提取必需。apt install ffmpeg" ;;
+            python3) info "应用自身必需。fnOS 应用中心搜「Python」安装运行时" ;;
+        esac
+    fi
+done
+
+# ---------- 2. 光鸭云盘 App ----------
+echo "【光鸭云盘 App】(云下载 + 下载到 NAS 的执行端)"
+GY_CODE=$(http_code "http://127.0.0.1:8998/api/user" 5)
+if [ "$GY_CODE" = "200" ]; then
+    GY_JSON=$(curl -s -m 5 http://127.0.0.1:8998/api/user 2>/dev/null)
+    GY_STATE=$(printf '%s' "$GY_JSON" | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    print('unparsable'); raise SystemExit
+if d.get('error'):
+    print('error'); raise SystemExit
+if d.get('is_logged_in') is False:
+    print('logged_out'); raise SystemExit
+n = d.get('name') or d.get('nickname') or ''
+print('ok:' + n if n and n != '未登录' else 'logged_out')
+" 2>/dev/null)
+    case "$GY_STATE" in
+        ok:*)
+            ok "光鸭云盘 App 运行中（已登录：${GY_STATE#ok:}）" ;;
+        logged_out)
+            warn "光鸭云盘 App 运行中，但未登录"
+            miss "光鸭云盘登录"
+            info "打开 fnOS 应用中心的「光鸭网盘」，扫码登录后重试"
+            info "（登录态过期或 refresh token 失效时需要重新扫码，属正常情况）" ;;
+        *)
+            warn "光鸭云盘 App 有响应但异常 ($GY_STATE)"
+            miss "光鸭云盘 App"
+            info "尝试重启：trim-cli app restart guangyapan --yes" ;;
+    esac
+else
+    warn "光鸭云盘 App 未运行 (8998 返回 $GY_CODE)"
+    miss "光鸭云盘 App"
+    MISSING_APP="$MISSING_APP guangyapan"
+    info "在 fnOS 应用中心安装并启动「光鸭网盘」，并完成登录"
+fi
+
+# ---------- 3. Jackett ----------
+echo "【Jackett】(资源搜索)"
+JT_KEY=$(jackett_key)
+if [ -z "$JT_KEY" ]; then
+    warn "未找到 Jackett 配置或 APIKey"
+    miss "Jackett"
+    MISSING_APP="$MISSING_APP jackett"
+    info "在 fnOS 应用中心安装「Jackett」（默认端口 9117），并至少添加一个可用索引器"
+    info "如配置不在默认路径，设置环境变量 JACKETT_CONFIG 指向 ServerConfig.json"
+else
+    JT_CODE=$(http_code "http://127.0.0.1:9117/api/v2.0/indexers/thepiratebay/results?apikey=${JT_KEY}&Query=test" 12)
+    if [ "$JT_CODE" = "200" ]; then
+        ok "Jackett 运行中（API 正常）"
+    elif [ "$JT_CODE" = "000" ]; then
+        warn "Jackett 未运行（9117 无响应）"
+        miss "Jackett"
+        MISSING_APP="$MISSING_APP jackett"
+        info "在 fnOS 应用中心启动「Jackett」，或执行 trim-cli app start jackett --yes"
+    else
+        warn "Jackett 有响应但 API 异常 (HTTP $JT_CODE)"
+        info "打开 http://<nas-ip>:9117 确认 Jackett 已初始化，并已添加索引器"
+    fi
+fi
+
+# ---------- 4. FlareSolverr ----------
+echo "【FlareSolverr】(可选 · uindex.org 需绕过 Cloudflare)"
+FS_CODE=$(http_code "http://127.0.0.1:8191/" 5)
+if [ "$FS_CODE" = "200" ]; then
+    ok "FlareSolverr 运行中 (8191)"
+elif command -v docker >/dev/null 2>&1; then
+    echo "  [可选] FlareSolverr 未运行 —— 不影响主流程，仅 uindex.org 这个源不可用"
+    info "启动方式: cd <应用目录>/server/flaresolverr && docker compose up -d"
+    info "启动后还需在 Jackett 的 ServerConfig.json 里配置 FlareSolverrUrl=http://127.0.0.1:8191 并重启 Jackett"
+else
+    echo "  [可选] FlareSolverr 未运行且未安装 Docker —— 仅 uindex.org 这个源不可用"
+fi
+
+# ---------- 结论 ----------
+echo
+if [ -z "$MISSING" ]; then
+    echo "✅ 全部依赖就绪，应用可以正常工作。"
+    echo
+    [ "$QUIET" = "1" ] || echo "下一步：打开应用，在「资源筛选偏好」里确认画质与格式偏好，然后登记想看的剧或电影。"
+    exit 0
+else
+    echo "⚠️  以下依赖尚未就绪：$MISSING"
+    if [ -n "$MISSING_APP" ]; then
+        echo
+        echo "可在终端一次性安装缺失的 fnOS 应用："
+        for a in $MISSING_APP; do
+            echo "  trim-cli app install $a --yes"
+        done
+    fi
+    echo
+    echo "装好后重跑本检查： $0"
+    exit 1
+fi

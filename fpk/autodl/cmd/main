@@ -30,6 +30,14 @@ start_process() {
         log_msg "already running"
         return 0
     fi
+
+    # 启动前轻量检查依赖: 只记录，不阻断启动
+    if [ -x "${TRIM_APPDEST}/server/bin/depcheck" ]; then
+        if ! "${TRIM_APPDEST}/server/bin/depcheck" --quiet 2>&1 | grep -q "全部依赖就绪"; then
+            log_msg "dependency warning: 部分依赖未就绪，详见 server/bin/depcheck 输出"
+        fi
+    fi
+
     log_msg "starting web console on :${PORT}"
 
     mkdir -p "${VAR_DIR}/logs"
@@ -39,6 +47,32 @@ start_process() {
         cp "${INSTALL_DIR}/config.example.json" "${VAR_DIR}/config.json"
         chmod 600 "${VAR_DIR}/config.json"
         log_msg "created config.json from template"
+    fi
+
+    # 首次启动: 把安装向导里填的值写进配置
+    if [ ! -f "${VAR_DIR}/.wizard_applied" ] && [ -f "${VAR_DIR}/config.json" ]; then
+        "${PY}" - "${VAR_DIR}/config.json" <<'PYEOF' >> "${VAR_DIR}/logs/cron.log" 2>&1
+import json, os, sys
+p = sys.argv[1]
+cfg = json.load(open(p, encoding='utf-8'))
+mapping = {
+    "media_root":     os.environ.get("wizard_media_root", "").strip(),
+    "wanted_quality": os.environ.get("wizard_quality", "").strip(),
+    "subhd_email":    os.environ.get("wizard_subhd_email", "").strip(),
+    "subhd_password": os.environ.get("wizard_subhd_password", "").strip(),
+}
+changed = []
+for k, v in mapping.items():
+    if v and cfg.get(k) != v:
+        cfg[k] = v
+        changed.append(k)
+if changed:
+    json.dump(cfg, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    os.chmod(p, 0o600)
+    print("wizard applied:", ", ".join(changed))
+PYEOF
+        touch "${VAR_DIR}/.wizard_applied"
+        log_msg "wizard values applied to config.json"
     fi
 
     cd "${INSTALL_DIR}" || { log_msg "install dir missing: ${INSTALL_DIR}"; return 1; }
@@ -100,6 +134,14 @@ case "$1" in
     stop)   stop_process ;;
     status)
         if is_running; then exit 0; else exit 3; fi
+        ;;
+    depcheck)
+        # 手动复检依赖，输出直接打印到终端
+        if [ -x "${TRIM_APPDEST}/server/bin/depcheck" ]; then
+            exec "${TRIM_APPDEST}/server/bin/depcheck"
+        fi
+        echo "depcheck script not found" >&2
+        exit 1
         ;;
     *) echo "unknown command: $1" > "${TRIM_TEMP_LOGFILE:-/dev/null}"; exit 1 ;;
 esac

@@ -1,11 +1,63 @@
 #!/usr/bin/env bash
 # 影视资源自动追踪控制台 —— 一键安装脚本
-# 用法: ./install.sh [安装目录]
+# 用法: ./install.sh [安装目录] [--skip-check]
+#   --skip-check  跳过前置依赖检查强制安装
 set -euo pipefail
 
 DEST="${1:-/opt/autodl}"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ---------- 前置依赖检查 ----------
+# 本脚本只负责放置程序文件，真正的搜索/下载依赖下面的组件。
+MISSING=()
+
+command -v python3 >/dev/null 2>&1 || MISSING+=("python3（必需，应用本体）")
+command -v aria2c  >/dev/null 2>&1 || MISSING+=("aria2c（必需，下载到 NAS）")
+command -v ffmpeg  >/dev/null 2>&1 || MISSING+=("ffmpeg（必需，字幕提取转换）")
+command -v ffprobe >/dev/null 2>&1 || MISSING+=("ffprobe（必需，字幕提取）")
+
+# 光鸭云盘（云下载 / 下载到 NAS 的执行端）
+GY_URL_CHECK="${GY_URL:-http://127.0.0.1:8998}"
+if ! curl -s -m 5 -o /dev/null "${GY_URL_CHECK}/api/user" 2>/dev/null; then
+    MISSING+=("光鸭云盘 App（必需，${GY_URL_CHECK} 无响应）")
+fi
+
+# Jackett（资源搜索）
+JT_URL_CHECK="${JACKETT_URL:-http://127.0.0.1:9117}"
+if ! curl -s -m 5 -o /dev/null "${JT_URL_CHECK}/" 2>/dev/null; then
+    MISSING+=("Jackett（必需，${JT_URL_CHECK} 无响应）")
+fi
+
+if [ ${#MISSING[@]} -gt 0 ]; then
+    cat <<EOF
+
+⚠️  以下依赖尚未就绪：
+
+EOF
+    for m in "${MISSING[@]}"; do echo "   - ${m}"; done
+    cat <<EOF
+
+请先准备好再继续，否则应用能启动但无法真正下载。
+
+fnOS 上可直接安装：
+   trim-cli app install guangyapan --yes    # 光鸭云盘
+   trim-cli app install jackett --yes       # Jackett
+
+命令行工具（aria2 / ffmpeg）：
+   apt install aria2 ffmpeg
+
+可选（仅 uindex.org 需要）：
+   FlareSolverr —— 见 README「FlareSolverr」章节
+
+若确认继续安装，请加 --skip-check 参数。
+
+EOF
+    if [ "${2:-}" != "--skip-check" ] && [ "${1:-}" != "--skip-check" ]; then
+        exit 1
+    fi
+fi
+
+echo "==> 依赖检查通过"
 echo "==> 安装到 ${DEST}"
 mkdir -p "${DEST}"/{logs,web,flaresolverr}
 

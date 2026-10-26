@@ -6,6 +6,76 @@
 链路：**多源搜索（6 个 Jackett 索引器 + bt4g RSS）** → **光鸭云盘「云下载」**（云端离线，不占本地带宽）
 → **光鸭「下载到NAS」**（aria2 16 线程直链）→ **自动中文字幕**（内嵌提取 / SubHD）
 
+## 安装前必读：依赖
+
+本应用只负责调度，真正的「搜索 / 下载」由下面这些组件完成。**装本应用之前请先装好前两项**。
+
+### 必需依赖
+
+| 依赖 | 类型 | 端口 | 安装方式 | 作用 |
+|---|---|---|---|---|
+| **光鸭云盘** | fnOS 应用 | 8998 | 应用中心搜索「光鸭网盘」 | 提供「云下载」和「下载到 NAS」，本应用的下载执行端。**装好后必须扫码登录** |
+| **Jackett** | fnOS 应用 | 9117 | 应用中心搜索「Jackett」 | 资源搜索源。**装好后必须添加索引器**，否则搜不到任何资源 |
+
+安装本应用时，飞牛会依据 `manifest` 里的 `install_dep_apps=guangyapan:jackett` 自动尝试安装并启动这两个应用。
+已装的会跳过，不会重复安装。
+
+### 可选依赖
+
+| 依赖 | 类型 | 端口 | 说明 |
+|---|---|---|---|
+| **FlareSolverr** | Docker 容器 | 8191 | 只有 `uindex.org` 这一个搜索源需要它绕过 Cloudflare 验证。不装不影响其余 6 个源 |
+
+启用方式（compose 文件随应用一起安装）：
+
+```bash
+cd /usr/local/apps/@appcenter/autodl/server/flaresolverr
+docker compose up -d
+```
+
+然后在 Jackett 的 `ServerConfig.json` 里加两行并重启 Jackett：
+
+```json
+"FlareSolverrUrl": "http://127.0.0.1:8191",
+"FlareSolverrMaxTimeout": 60000
+```
+
+### 系统命令
+
+| 命令 | 必需性 | 用途 | 缺失时安装 |
+|---|---|---|---|
+| `python3` | 必需 | 应用本体 | 应用中心搜「Python」 |
+| `aria2c` | 必需 | 下载到 NAS | 应用中心搜「aria2」或 `apt install aria2` |
+| `ffmpeg` / `ffprobe` | 必需 | 字幕提取与格式转换 | `apt install ffmpeg` |
+
+### 装完怎么检查依赖
+
+```bash
+/usr/local/apps/@appcenter/autodl/server/bin/depcheck
+```
+
+输出示例（全部就绪时返回 0）：
+
+```
+== 影视资源自动追踪控制台 · 依赖检查 ==
+【命令行工具】
+  [OK]   python3
+  [OK]   aria2c
+  [OK]   ffmpeg
+  [OK]   ffprobe
+【光鸭云盘 App】(云下载 + 下载到 NAS 的执行端)
+  [OK]   光鸭云盘 App 运行中（已登录：xxx）
+【Jackett】(资源搜索)
+  [OK]   Jackett 运行中（API 正常）
+【FlareSolverr】(可选 · uindex.org 需绕过 Cloudflare)
+  [OK]   FlareSolverr 运行中 (8191)
+
+✅ 全部依赖就绪，应用可以正常工作。
+```
+
+有缺失时会直接告诉你缺什么、怎么装，并给出可复制的安装命令。
+安装完成后这份报告也会写进安装日志，用户在应用中心即可看到。
+
 ## 能做什么
 
 | 能力 | 说明 |
