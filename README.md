@@ -6,45 +6,6 @@
 链路：**多源搜索（6 个 Jackett 索引器 + bt4g RSS）** → **光鸭云盘「云下载」**（云端离线，不占本地带宽）
 → **光鸭「下载到NAS」**（aria2 16 线程直链）→ **自动中文字幕**（内嵌提取 / SubHD）
 
-## 安装方式
-
-### 方式一：fnOS 应用包（推荐）
-
-下载 [Releases](https://github.com/lawzhougc/autodl/releases) 中的 `autodl.fpk`，
-在飞牛 fnOS「应用中心 → 手动安装」上传安装。装完后桌面出现「影视资源自动追踪控制台」图标，
-点开即是 Web 控制台。追剧数据存放在应用的 pkgvar 目录，升级不丢失。
-
-自行打包：
-
-```bash
-./fpk/build.sh          # 需要先安装 fnpack
-```
-
-### 方式二：脚本直接运行
-
-见下方「快速开始」。
-
-## 快速开始
-
-```bash
-git clone <this-repo> autodl && cd autodl
-./install.sh /opt/autodl        # 安装到指定目录，默认 /opt/autodl
-vi /opt/autodl/config.json      # 改 media_root、填 SubHD 账号
-cd /opt/autodl && python3 gy_autodl.py search "Oppenheimer 2023"   # 测试
-```
-
-前置依赖：**光鸭云盘 App**（本地 8998 端口）、**Jackett**（本地 9117 端口）、
-`aria2c`、`ffmpeg`/`ffprobe`、Python 3.8+（仅标准库，无需 pip 安装）。
-端口或路径不同可用环境变量覆盖：`GY_URL` / `JACKETT_URL` / `JACKETT_CONFIG`。
-
-加定时任务：
-
-```bash
-crontab -e
-13  * * * *  /usr/bin/python3 /opt/autodl/gy_autodl.py run >> /opt/autodl/logs/cron.log 2>&1
-*/5 * * * * /usr/bin/python3 /opt/autodl/web/app.py    >> /opt/autodl/logs/web.log 2>&1
-```
-
 ## 能做什么
 
 | 能力 | 说明 |
@@ -76,7 +37,7 @@ crontab -e
 ## 日常使用
 
 ```bash
-cd /path/to/autodl
+cd /vol1/@appdata/autodl
 
 # 搜索看看有什么资源（不下载）
 python3 gy_autodl.py search "MobLand S02E07"
@@ -97,7 +58,7 @@ python3 gy_autodl.py run            # cron 同款：推进任务 + 搜新集
 python3 gy_autodl.py poll           # 只推进已有任务，不搜索
 
 # 手动补字幕（优先内嵌 zh → SubHD 中文 → 内嵌 en 兜底）
-python3 gy_autodl.py sub "/path/to/media/library/xxx.mkv"
+python3 gy_autodl.py sub "/vol3/1000/媒体库2/xxx.mkv"
 ```
 
 ## 自动化
@@ -110,7 +71,7 @@ cron（root）：`13 * * * *` 每小时第 13 分执行 `run`，日志 `logs/cro
 1. **搜索**：并行查 6 个 Jackett 索引器（thepiratebay/knaben/therarbg/limetorrents/torrentgalaxyclone/uindex）+ bt4g 原生 RSS 源。
 2. **选优**：优先 2160p；排序 = 非意大利语 > Repack > REMUX > BluRay > WEB > 种子数 > 体积。磁链直用；纯种子先本地取字节转 infohash 磁链。
 3. **云下载**：磁链提交光鸭离线（`自动下载/{剧名}/` 或 `自动下载/电影/{片名}/`），选中视频文件（排除样片/小文件）。
-4. **NAS 落盘**：云任务 100% 后经 signedURL 用 aria2 下到 `<media_root>/{剧名}/` 或 `<media_root>/电影/{片名}/`，文件保留 release 原名。
+4. **NAS 落盘**：云任务 100% 后经 signedURL 用 aria2 下到 `/vol3/1000/媒体库2/{剧名}/` 或 `媒体库2/电影/{片名}/`，文件保留 release 原名。
 5. **字幕**：同目录已有 → 内嵌中文字幕 ffmpeg 提取为 `xxx.zh.srt` → **SubHD 下载中文字幕**（支持 ZIP/RAR5 包，CHS/CHT 优先，ass 自动转 srt）→ 内嵌英文提取为 `xxx.en.srt` 兜底。
 
 ## 配置（config.json，可选）
@@ -180,7 +141,7 @@ cron（root）：`13 * * * *` 每小时第 13 分执行 `run`，日志 `logs/cro
 
 ## Web 控制台（:8770）
 
-浏览器打开 http://<your-nas-ip>:8770 —— 登记心愿/追剧、搜索资源、立即下载、看任务进度与事件。
+浏览器打开 http://192.168.1.3:8770 —— 登记心愿/追剧、搜索资源、立即下载、看任务进度与事件。
 后端 `web/app.py`（复用 gy_autodl 链路），cron 每 5 分钟保活（幂等，重复启动自动退出）。
 心愿清单存 `wishlist.json`；登记心愿后点「转追剧」或「立即下载」落地为真实任务。
 
@@ -190,19 +151,6 @@ cron（root）：`13 * * * *` 每小时第 13 分执行 `run`，日志 `logs/cro
 - `logs/run.log`：运行日志；`logs/events.log`：关键事件（提交/完成/失败）。
 - 失败自动重试 2 次；云任务 72h 超时判失败；30 天后清理历史记录。
 
-## 语种偏好
-
-默认**只用英语版本**：意/德/法/俄等外语资源排在英语版之后，仅当没有英语版时兜底。
-
-| 档位 | 行为 |
-| --- | --- |
-| `en_prefer`（默认） | 英语版优先，外语版降权兜底 |
-| `en_only` | 严格排除含外语标签的资源 |
-| `any` | 不区分语种 |
-
-未标语种的资源（大多数英语资源不标语种）视为英语资源放行。
-可在 Web 控制台「资源筛选偏好 → 语种偏好」修改。
-
 ## 资源筛选偏好
 
 决定「什么样的资源才值得下」。全部在 Web 控制台「🎯 资源筛选偏好」卡片里设置，也可直接改 `config.json`。
@@ -211,6 +159,7 @@ cron（root）：`13 * * * *` 每小时第 13 分执行 `run`，日志 `logs/cro
 |---|---|---|
 | `wanted_quality` | `2160p` | 首选清晰度：`2160p` / `1080p` / `any`（不限，4K 优先） |
 | `quality_fallback` | `[]` | 首选档没有时的降级允许列表，如 `["1080p"]`。**留空 = 不降级**，找不到 4K 就停下来询问你 |
+| `wanted_lang` | `en_prefer` | 语种偏好：`en_prefer`（英语优先，外语版仅兜底）/ `en_only`（排除含外语标签的资源）/ `any`（不限）。未标语种的资源视为英语 |
 | `allow_format` | `[]` | 允许的容器格式白名单，如 `["mkv","mp4"]`。**留空 = 不限格式** |
 | `prefer_format` | `["mkv"]` | 格式优先级，靠前的优先。同名资源 mkv 优先于 mp4 |
 | `prefer_codec` | `[]` | 编码优先级，如 `["hevc","av1","h264"]` |
@@ -243,11 +192,11 @@ uindex.org 全站（含搜索页）启用了 Cloudflare non-interactive 挑战�
 浏览器（含持久化会话、cloudscraper）都返回 403。解决方案是本地部署 FlareSolverr 容器：
 
 ```bash
-cd /path/to/autodl/flaresolverr
+cd /vol1/@appdata/autodl/flaresolverr
 docker compose up -d          # 监听 :8191，restart: unless-stopped
 ```
 
-Jackett 侧配置（`<Jackett 数据目录>/ServerConfig.json`）：
+Jackett 侧配置（`/vol1/@appdata/jackett/data/ServerConfig.json`）：
 
 ```json
 "FlareSolverrUrl": "http://127.0.0.1:8191",
@@ -268,13 +217,3 @@ FlareSolverr 只在索引器遇到 CF 挑战时被调用，正常搜索不产生
 - 字幕：中文优先 SubHD（config.json 已配置账号）；SubHD 偶发限流/图形字幕包（.sup 无文本）时自动重试多候选或回退内嵌英文字幕。
 - 剧集按「单集资源」追踪；整季包暂不支持自动下载（可手动 add 单集）。
 - 需要光鸭网盘(:8998)和 Jackett(:9117) 两个应用处于运行状态。
-
-## 免责声明
-
-本项目只提供资源检索与下载的**自动化流程**，本身不存储、不分发任何影视内容。
-使用者需自行确保所下载内容的合法性，并遵守所在地法律法规。所有索引器与网盘服务均由第三方提供，
-本项目不对其可用性、内容或合法性作任何保证。
-
-## 许可
-
-MIT

@@ -136,6 +136,13 @@ a{color:var(--acc);text-decoration:none}
       <tr><td>无首选时降级</td>
           <td><label><input id="fqFallback" type="checkbox"> 自动降级到 1080p</label>
           <span class="dim">— 不勾选时：找不到 4K 就停下来询问你，不会擅自下 1080p</span></td></tr>
+      <tr><td>语种</td>
+          <td><select id="fqLang">
+            <option value="en_prefer">英语优先（外语版仅兜底）</option>
+            <option value="en_only">只要英语（排除含外语标签的资源）</option>
+            <option value="any">不限语种</option>
+          </select>
+          <span class="dim">— 默认「英语优先」：意/德/法/俄等外语资源排在英语版之后。未标语种的资源视为英语</span></td></tr>
       <tr><td>允许的格式</td>
           <td>
             <label><input type="checkbox" class="fmtAllowed" value="mkv"> mkv</label>
@@ -154,13 +161,6 @@ a{color:var(--acc);text-decoration:none}
       <tr><td>片源偏好</td>
           <td><input id="fqSource" type="text" style="width:190px" placeholder="remux,bluray,web">
           <span class="dim">— 逗号分隔；留空=用默认权重(REMUX&gt;BluRay&gt;WEB)</span></td></tr>
-      <tr><td>语种偏好</td>
-          <td><select id="fqLang">
-            <option value="en_prefer">只用英语版（外语版仅兜底）</option>
-            <option value="en_only">严格英语（排除含外语标签的资源）</option>
-            <option value="any">不限语种</option>
-          </select>
-          <span class="dim">— 默认「只用英语版」：意/德/法/俄等外语资源排在英语版之后</span></td></tr>
       <tr><td>优先 HDR/杜比视界</td>
           <td><label><input id="fqHdr" type="checkbox"> 开启</label>
           <span class="dim">— 同条件下优先 HDR / Dolby Vision 版本</span></td></tr>
