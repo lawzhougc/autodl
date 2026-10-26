@@ -1,0 +1,105 @@
+#!/bin/bash
+# 影视资源自动追踪控制台 —— 应用生命周期控制
+# start / stop / status
+
+INSTALL_DIR="${TRIM_APPDEST}/server"
+VAR_DIR="${TRIM_PKGVAR}"
+LOG_FILE="${VAR_DIR}/info.log"
+WEB_PID="${VAR_DIR}/web.pid"
+PY="/usr/bin/python3"
+PORT=8770
+
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"; }
+
+check_process() { kill -0 "$1" 2>/dev/null; }
+
+is_running() {
+    if [ -f "${WEB_PID}" ]; then
+        pid=$(head -n 1 "${WEB_PID}" | tr -d '[:space:]')
+        if check_process "${pid}"; then return 0; fi
+        rm -f "${WEB_PID}"
+    fi
+    if command -v ss >/dev/null 2>&1; then
+        if ss -lnt 2>/dev/null | grep -q ":${PORT} "; then return 0; fi
+    fi
+    return 1
+}
+
+start_process() {
+    if is_running; then
+        log_msg "already running"
+        return 0
+    fi
+    log_msg "starting web console on :${PORT}"
+
+    mkdir -p "${VAR_DIR}/logs"
+
+    # 首次启动: 从模板生成配置文件
+    if [ ! -f "${VAR_DIR}/config.json" ] && [ -f "${INSTALL_DIR}/config.example.json" ]; then
+        cp "${INSTALL_DIR}/config.example.json" "${VAR_DIR}/config.json"
+        chmod 600 "${VAR_DIR}/config.json"
+        log_msg "created config.json from template"
+    fi
+
+    cd "${INSTALL_DIR}" || { log_msg "install dir missing: ${INSTALL_DIR}"; return 1; }
+    TRIM_PKGVAR="${VAR_DIR}" PYTHONUNBUFFERED=1 \
+        "${PY}" "${INSTALL_DIR}/web/app.py" >> "${VAR_DIR}/logs/web.log" 2>&1 &
+    printf "%s" "$!" > "${WEB_PID}"
+    sleep 2
+
+    if check_process "$(cat "${WEB_PID}")"; then
+        log_msg "web console started, pid=$(cat "${WEB_PID}")"
+        install_cron
+        return 0
+    fi
+    log_msg "failed to start web console"
+    return 1
+}
+
+stop_process() {
+    log_msg "stopping web console"
+    remove_cron
+    if [ -f "${WEB_PID}" ]; then
+        pid=$(head -n 1 "${WEB_PID}" | tr -d '[:space:]')
+        if check_process "${pid}"; then
+            kill -TERM "${pid}" 2>/dev/null
+            count=0
+            while check_process "${pid}" && [ $count -lt 10 ]; do
+                sleep 1; count=$((count + 1))
+            done
+            check_process "${pid}" && kill -KILL "${pid}" 2>/dev/null
+        fi
+        rm -f "${WEB_PID}"
+    fi
+    log_msg "stopped"
+    return 0
+}
+
+# 定时任务: 每小时第 13 分跑主循环。用独立标记块, 便于增删而不动用户其它任务
+CRON_MARK_BEGIN="# >>> autodl begin"
+CRON_MARK_END="# <<< autodl end"
+
+install_cron() {
+    command -v crontab >/dev/null 2>&1 || { log_msg "crontab unavailable"; return 0; }
+    current=$(crontab -l 2>/dev/null | sed "/${CRON_MARK_BEGIN}/,/${CRON_MARK_END}/d")
+    {
+        [ -n "${current}" ] && printf "%s\n" "${current}"
+        printf "%s\n" "${CRON_MARK_BEGIN}"
+        printf "%s\n" "13 * * * * cd ${INSTALL_DIR} && TRIM_PKGVAR=${VAR_DIR} ${PY} ${INSTALL_DIR}/gy_autodl.py run >> ${VAR_DIR}/logs/cron.log 2>&1"
+        printf "%s\n" "${CRON_MARK_END}"
+    } | crontab - 2>/dev/null && log_msg "cron installed" || log_msg "cron install failed"
+}
+
+remove_cron() {
+    command -v crontab >/dev/null 2>&1 || return 0
+    crontab -l 2>/dev/null | sed "/${CRON_MARK_BEGIN}/,/${CRON_MARK_END}/d" | crontab - 2>/dev/null
+}
+
+case "$1" in
+    start)  start_process ;;
+    stop)   stop_process ;;
+    status)
+        if is_running; then exit 0; else exit 3; fi
+        ;;
+    *) echo "unknown command: $1" > "${TRIM_TEMP_LOGFILE:-/dev/null}"; exit 1 ;;
+esac

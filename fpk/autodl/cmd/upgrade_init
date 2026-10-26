@@ -1,0 +1,7 @@
+#!/bin/bash
+# 升级前备份配置
+VAR_DIR="${TRIM_PKGVAR}"
+if [ -f "${VAR_DIR}/config.json" ]; then
+    cp "${VAR_DIR}/config.json" "${VAR_DIR}/config.json.bak.${TRIM_OLD_APPVER}" 2>/dev/null
+fi
+exit 0

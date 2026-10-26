@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>影视资源自动追踪控制台</title>
+<style>
+:root{--bg:#0f1420;--card:#1a2130;--line:#2a3347;--tx:#e6ebf4;--dim:#8a94a8;--acc:#4f8cff;--ok:#3fb96f;--warn:#e0a13f;--bad:#e05c5c}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;padding:20px;max-width:980px;margin:0 auto}
+h1{font-size:22px;margin-bottom:4px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+h2{font-size:16px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+input[type=text]{background:#0d1119;border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px;width:100%}
+input:focus{outline:none;border-color:var(--acc)}
+.row{display:flex;gap:8px;align-items:center}
+button{background:var(--acc);border:0;border-radius:8px;color:#fff;padding:9px 16px;font-size:14px;cursor:pointer;white-space:nowrap}
+button:hover{filter:brightness(1.15)}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
+button.mini{padding:4px 10px;font-size:12px;border-radius:6px}
+button.bad{background:var(--bad)}
+select{background:#0d1119;border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 10px;font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{color:var(--dim);font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px}
+td{padding:8px;border-bottom:1px solid #212a3c;vertical-align:top}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px}
+.tag.cloud{background:#3a2f12;color:var(--warn)}
+.tag.nas{background:#122a3a;color:#57b6f0}
+.tag.done{background:#12321f;color:var(--ok)}
+.tag.failed{background:#3a1212;color:var(--bad)}
+.dim{color:var(--dim);font-size:13px}
+.bar{height:6px;background:#0d1119;border-radius:4px;overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;background:var(--acc)}
+#searchRes .item{padding:8px;border-bottom:1px solid #212a3c;display:flex;justify-content:space-between;gap:10px;align-items:center}
+#searchRes .t{flex:1;min-width:0}
+#searchRes .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13.5px}
+.flash{padding:8px 12px;border-radius:8px;margin:10px 0;font-size:13.5px;display:none}
+.flash.ok{display:block;background:#12321f;color:var(--ok)}
+.flash.err{display:block;background:#3a1212;color:var(--bad)}
+.mt{margin-top:10px}
+.pill{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:2px 10px;margin-right:6px}
+a{color:var(--acc);text-decoration:none}
+.events{font-size:12px;color:var(--dim);max-height:180px;overflow:auto;white-space:pre-wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>🎬 影视资源自动追踪控制台</h1>
+<div class="sub">多源搜索(7 索引器 + bt4g) → 光鸭云下载 → NAS → 自动中文字幕 · 追剧/电影自动追踪 · 每集自动落地到媒体库</div>
+<div id="flash" class="flash"></div>
+
+<div class="card">
+  <h2>➕ 登记想看的片</h2>
+  <div class="row">
+    <input type="text" id="wishName" placeholder="美剧名(如 MobLand)或电影名(如 Oppenheimer 2023), 也可带集号 S02E07" onkeydown="if(event.key=='Enter')addWish()">
+    <select id="wishKind"><option value="auto">自动识别</option><option value="tv">剧集</option><option value="movie">电影</option></select>
+    <button onclick="addWish()">登记</button>
+    <button class="ghost" onclick="doSearch()">🔍 搜索资源</button>
+  </div>
+  <div class="dim mt">登记后进入「心愿清单」; 搜索结果里可直接选资源立即下载。</div>
+  <div id="searchRes" class="mt" style="display:none"></div>
+</div>
+
+<div class="grid2">
+<div class="card">
+  <h2>📋 心愿清单 <span class="pill" id="wishCount"></span></h2>
+  <table><tbody id="wishList"></tbody></table>
+  <div class="dim" id="wishEmpty">空。登记后可在此转成追剧或立即下载。</div>
+</div>
+
+<div class="card">
+  <h2>📺 追剧列表</h2>
+  <div class="row mb">
+    <input type="text" id="showName" placeholder="剧名">
+    <input type="text" id="showLast" placeholder="已看到 S02E06" style="width:150px" onkeydown="if(event.key=='Enter')addShow()">
+    <button onclick="addShow()">登记追剧</button>
+  </div>
+  <table><tbody id="showList"></tbody></table>
+</div>
+</div>
+
+<div class="card">
+  <h2>⏬ 任务进度
+    <span style="flex:1"></span>
+    <button class="mini ghost" onclick="api('/api/run','已触发全量 run')">▶ 手动 run</button>
+    <button class="mini ghost" onclick="api('/api/poll','已触发 poll')">⟳ 推进任务</button>
+  </h2>
+  <table><thead><tr><th>任务</th><th>阶段</th><th>详情</th></tr></thead><tbody id="taskList"></tbody></table>
+  <div class="dim" id="taskEmpty" style="display:none">暂无进行中任务</div>
+</div>
+
+<div class="card">
+  <h2>⚙️ 下载节奏设置</h2>
+  <div class="dim mb">控制已上线剧集的补集节奏。未上线的新集只要搜到 2160p 就自动下载（除非关闭下方开关）。</div>
+  <table>
+    <tbody>
+      <tr><td style="width:180px">每批下载集数</td>
+          <td><input id="cfgBatch" type="number" min="1" max="20" style="width:90px"> 集
+          <span class="dim">— 一次最多连续追下几集</span></td></tr>
+      <tr><td>攒批间隔</td>
+          <td><input id="cfgGap" type="number" min="0" max="168" step="0.5" style="width:90px"> 小时
+          <span class="dim">— 这批下完后隔多久再下下一批(0=不等待)</span></td></tr>
+      <tr><td>连续补集</td>
+          <td><label><input id="cfgBackfill" type="checkbox"> 开启</label>
+          <span class="dim">— 关闭后每次只追最新已上线的一集</span></td></tr>
+      <tr><td>新集自动下载</td>
+          <td><label><input id="cfgAuto" type="checkbox"> 开启</label>
+          <span class="dim">— 关闭后只登记不下载，需手动确认</span></td></tr>
+      <tr><td>追剧搜索周期</td>
+          <td><input id="cfgSearchGap" type="number" min="0" max="720" step="1" style="width:90px"> 小时
+          <span class="dim">— 多久搜一次新集(0=每次 cron 都搜, 24=每天一次)</span>
+          <div class="dim" id="cfgSearchNote" style="margin-top:4px"></div></td></tr>
+      <tr><td>每轮提交上限</td>
+          <td><input id="cfgMax" type="number" min="1" max="20" style="width:90px"> 个任务
+          <span class="dim">— 单次 cron 循环最多提交多少个</span></td></tr>
+    </tbody>
+  </table>
+  <div class="mt"><button class="mini" onclick="saveCfg()">💾 保存设置</button></div>
+  <div class="dim mt" id="cfgSaved"></div>
+</div>
+
+<div class="card">
+  <h2>🎯 资源筛选偏好</h2>
+  <div class="dim mb">决定「什么样的资源才值得下」。同时满足所有条件才会被选中；找不到符合的会跳过并在事件里提示。</div>
+  <table>
+    <tbody>
+      <tr><td style="width:180px">首选清晰度</td>
+          <td><select id="fqQuality">
+            <option value="2160p">2160p / 4K</option>
+            <option value="1080p">1080p</option>
+            <option value="any">不限（2160p 优先，其次 1080p）</option>
+          </select>
+          <span class="dim">— 默认 4K</span></td></tr>
+      <tr><td>无首选时降级</td>
+          <td><label><input id="fqFallback" type="checkbox"> 自动降级到 1080p</label>
+          <span class="dim">— 不勾选时：找不到 4K 就停下来询问你，不会擅自下 1080p</span></td></tr>
+      <tr><td>允许的格式</td>
+          <td>
+            <label><input type="checkbox" class="fmtAllowed" value="mkv"> mkv</label>
+            <label><input type="checkbox" class="fmtAllowed" value="mp4"> mp4</label>
+            <label><input type="checkbox" class="fmtAllowed" value="avi"> avi</label>
+            <label><input type="checkbox" class="fmtAllowed" value="ts"> ts</label>
+            <label><input type="checkbox" class="fmtAllowed" value="iso"> iso</label>
+            <div class="dim">全都不勾 = 不限格式。勾了则只用勾选的格式（下载前用真实文件扩展名复核）</div>
+          </td></tr>
+      <tr><td>格式优先级</td>
+          <td><input id="fqPreferFmt" type="text" style="width:190px" placeholder="mkv,mp4">
+          <span class="dim">— 逗号分隔，靠前的优先；留空=不限</span></td></tr>
+      <tr><td>编码偏好</td>
+          <td><input id="fqCodec" type="text" style="width:190px" placeholder="hevc,av1,h264">
+          <span class="dim">— 逗号分隔，靠前的优先；留空=不限</span></td></tr>
+      <tr><td>片源偏好</td>
+          <td><input id="fqSource" type="text" style="width:190px" placeholder="remux,bluray,web">
+          <span class="dim">— 逗号分隔；留空=用默认权重(REMUX&gt;BluRay&gt;WEB)</span></td></tr>
+      <tr><td>语种偏好</td>
+          <td><select id="fqLang">
+            <option value="en_prefer">只用英语版（外语版仅兜底）</option>
+            <option value="en_only">严格英语（排除含外语标签的资源）</option>
+            <option value="any">不限语种</option>
+          </select>
+          <span class="dim">— 默认「只用英语版」：意/德/法/俄等外语资源排在英语版之后</span></td></tr>
+      <tr><td>优先 HDR/杜比视界</td>
+          <td><label><input id="fqHdr" type="checkbox"> 开启</label>
+          <span class="dim">— 同条件下优先 HDR / Dolby Vision 版本</span></td></tr>
+      <tr><td>单集/单片大小</td>
+          <td><input id="fqSizeMin" type="number" min="0" max="2000" step="0.5" style="width:80px"> ~
+              <input id="fqSizeMax" type="number" min="0" max="2000" step="0.5" style="width:80px"> GB
+          <span class="dim">— 0 表示不限。超出区间的资源直接跳过（防止整季包/超小低码率）</span></td></tr>
+    </tbody>
+  </table>
+  <div class="mt"><button class="mini" onclick="saveFq()">💾 保存偏好</button></div>
+  <div class="dim mt" id="fqSaved"></div>
+</div>
+
+<div class="card">
+  <h2>⏳ 排队中的集数</h2>
+  <div id="waiting" class="dim">暂无</div>
+</div>
+
+<div class="card">
+  <h2>📜 近期事件</h2>
+  <div class="events" id="events">加载中…</div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+function flash(msg,ok=true){const f=$('#flash');f.textContent=msg;f.className='flash '+(ok?'ok':'err');setTimeout(()=>f.className='flash',4000)}
+async function jget(u){const r=await fetch(u);const d=await r.json();if(d.error)throw d.error;return d}
+async function jpost(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});const d=await r.json();if(d.error)throw d.error;return d}
+function api(u,msg){return jpost(u).then(()=>{flash(msg);refresh()}).catch(e=>flash(e,false))}
+async function saveCfg(){
+  const body={batch_size:+$('#cfgBatch').value, batch_interval_hours:+$('#cfgGap').value,
+              backfill_enabled:$('#cfgBackfill').checked, auto_download_new:$('#cfgAuto').checked,
+              max_submit_per_run:+$('#cfgMax').value,
+              search_interval_hours:+$('#cfgSearchGap').value};
+  try{await jpost('/api/config',body);
+    $('#cfgSaved').textContent='已保存 '+new Date().toLocaleTimeString();
+    flash('设置已保存');
+    ['#cfgBatch','#cfgGap','#cfgBackfill','#cfgAuto','#cfgMax','#cfgSearchGap'].forEach(k=>delete $(k).dataset.init);
+    refresh();
+  }catch(e){flash(e,false)}
+}
+
+async function saveFq(){
+  const allowed=[...document.querySelectorAll('.fmtAllowed')].filter(x=>x.checked).map(x=>x.value);
+  const body={wanted_quality:$('#fqQuality').value,
+              quality_fallback:$('#fqFallback').checked?['1080p']:[],
+              allow_format:allowed,
+              prefer_format:$('#fqPreferFmt').value,
+              prefer_codec:$('#fqCodec').value,
+              prefer_source:$('#fqSource').value,
+              hdr_prefer:$('#fqHdr').checked,
+              wanted_lang:$('#fqLang').value,
+              size_min_gb:+$('#fqSizeMin').value||0,
+              size_max_gb:+$('#fqSizeMax').value||0};
+  try{await jpost('/api/config',body);
+    $('#fqSaved').textContent='已保存 '+new Date().toLocaleTimeString();
+    flash('筛选偏好已保存');
+    ['#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax','#fqLang']
+      .forEach(k=>delete $(k).dataset.init);
+    document.querySelectorAll('.fmtAllowed').forEach(x=>delete x.dataset.init);
+    refresh();
+  }catch(e){flash(e,false)}
+}
+
+async function addWish(){
+  const name=$('#wishName').value.trim(); if(!name)return flash('先填名称',false);
+  try{await jpost('/api/wish',{name,kind:$('#wishKind').value});$('#wishName').value='';flash('已登记: '+name);refresh()}
+  catch(e){flash(e,false)}
+}
+async function addShow(){
+  const name=$('#showName').value.trim(); if(!name)return flash('填剧名',false);
+  try{const d=await jpost('/api/addshow',{name,last:$('#showLast').value.trim()});flash(d.out||'已登记');refresh()}
+  catch(e){flash(e,false)}
+}
+function rmShow(name){if(confirm('移除追剧: '+name+'?'))jpost('/api/rmshow',{name}).then(refresh)}
+async function doSearch(){
+  const q=$('#wishName').value.trim(); if(!q)return flash('先填搜索词',false);
+  const box=$('#searchRes');box.style.display='block';box.innerHTML='<div class="dim">搜索中(约30-60秒)…</div>';
+  try{
+    const d=await jget('/api/search?q='+encodeURIComponent(q));
+    let h=`<div class="dim">共${d.total}条 · ${d.kind==='tv'?'剧集':'电影'} · 4K ${d.q4k.length}条</div>`;
+    if(d.recognized)h+=`<div class="dim">🀄 识别: ${esc(d.orig)} → <b>${esc(d.recognized)}</b></div>`;
+    if(d.best)h+=`<div class="item"><div class="t">★ 推荐: <b>${d.best}</b></div><button class="mini" onclick="download('${esc(q)}')">⬇ 下载推荐</button></div>`;
+    if(!d.q4k.length&&d.lo1080.length)h+='<div class="dim mt">无4K资源, 1080p候选:</div>';
+    d.q4k.forEach(r=>{
+      h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${r.langs&&r.langs.length?' · '+r.langs.join(',').toUpperCase():''}</span></div>
+      <button class="mini" onclick="download('${esc(q)}')">⬇ 推荐</button></div>`;
+    });
+    d.lo1080.forEach(r=>{
+      h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">1080p · ${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}</span></div>
+      <button class="mini ghost" onclick="download1080('${esc(q)}')">⬇ 1080p</button></div>`;
+    });
+    if(!d.q4k.length&&!d.lo1080.length)h+='<div class="dim">无可用资源</div>';
+    box.innerHTML=h;
+  }catch(e){box.innerHTML='<div class="dim">搜索失败: '+esc(e)+'</div>'}
+}
+function esc(s){return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;')}
+function download(q){jpost('/api/add',{name:q}).then(()=>flash('已后台提交下载: '+q)).catch(e=>flash(e,false))}
+function download1080(q){jpost('/api/add',{name:q,allow1080:true}).then(()=>flash('已提交(允许1080p): '+q)).catch(e=>flash(e,false))}
+async function wishToTV(name){$('#showName').value=name;addShow()}
+async function wishToDL(name){jpost('/api/add',{name}).then(()=>flash('已提交下载: '+name)).catch(e=>flash(e,false))}
+function delWish(key){jpost('/api/wish/delete',{key}).then(refresh)}
+
+async function refresh(){
+  try{
+    const [wishes,shows,tasks,events,cfg,waiting]=await Promise.all([
+      jget('/api/wishes'),jget('/api/shows'),jget('/api/tasks'),jget('/api/events'),
+      jget('/api/config'),jget('/api/waiting')]);
+    // 心愿
+    const keys=Object.keys(wishes);
+    $('#wishCount').textContent=keys.length;
+    $('#wishEmpty').style.display=keys.length?'none':'block';
+    $('#wishList').innerHTML=keys.map(k=>{
+      const w=wishes[k];
+      const running=w.tasks&&w.tasks.some(t=>t.stage!=='done'&&t.stage!=='failed');
+      return `<tr><td><b>${esc(w.name)}</b> ${running?'<span class="tag nas">进行中</span>':''}
+        <div class="dim">${w.kind==='tv'?'剧集':w.kind==='movie'?'电影':'自动'} · ${new Date(w.added*1000).toLocaleDateString()}</div>
+        <div class="mt"><button class="mini" onclick="wishToTV('${esc(w.name)}')">📺 转追剧</button>
+        <button class="mini ghost" onclick="wishToDL('${esc(w.name)}')">⬇ 立即下载</button>
+        <button class="mini ghost" onclick="delWish('${esc(k)}')">✕</button></div></td></tr>`;
+    }).join('');
+    // 追剧
+    $('#showList').innerHTML=shows.map(s=>`<tr><td><b>${esc(s.name)}</b>
+      <div class="dim">追至 S${String(s.last[0]).padStart(2,'0')}E${String(s.last[1]).padStart(2,'0')} · ${s.enabled!==false?'启用':'停用'}</div></td>
+      <td style="text-align:right"><button class="mini ghost" onclick="rmShow('${esc(s.name)}')">移除</button></td></tr>`).join('');
+    // 任务
+    const act=tasks.filter(t=>t.stage!=='done'&&t.stage!=='failed');
+    const recent=tasks.filter(t=>t.stage==='done'||t.stage==='failed').slice(0,6);
+    $('#taskEmpty').style.display=tasks.length?'none':'block';
+    $('#taskList').innerHTML=act.concat(recent).map(t=>{
+      let detail=t.error?`<span style="color:var(--bad)">${esc(t.error)}</span>`:'';
+      if(t.nas)t.nas.forEach(n=>{detail+=`<div>${esc(n.file)}<div class="bar"><i style="width:${n.percent||0}%"></i></div></div>`});
+      return `<tr><td>${esc(t.label||t.kind)}</td><td><span class="tag ${t.stage}">${t.stage}</span></td><td>${detail||'<span class=dim>-</span>'}</td></tr>`;
+    }).join('');
+    // 下载节奏设置(仅在未编辑时回填, 避免覆盖用户正在改的值)
+    if(!$('#cfgBatch').dataset.init){
+      $('#cfgBatch').value=cfg.batch_size; $('#cfgGap').value=cfg.batch_interval_hours;
+      $('#cfgBackfill').checked=!!cfg.backfill_enabled; $('#cfgAuto').checked=!!cfg.auto_download_new;
+      $('#cfgMax').value=cfg.max_submit_per_run; $('#cfgSearchGap').value=cfg.search_interval_hours;
+      ['#cfgBatch','#cfgGap','#cfgBackfill','#cfgAuto','#cfgMax','#cfgSearchGap'].forEach(k=>$(k).dataset.init='1');
+    }
+    // ---- 资源筛选偏好 ----
+    const fqInit = $('#fqQuality').dataset.init;
+    if(!fqInit){
+      $('#fqQuality').value = cfg.wanted_quality || '2160p';
+      $('#fqFallback').checked = (cfg.quality_fallback||[]).includes('1080p');
+      const al = cfg.allow_format||[];
+      document.querySelectorAll('.fmtAllowed').forEach(x=>{x.checked = al.includes(x.value); x.dataset.init='1'});
+      $('#fqPreferFmt').value = (cfg.prefer_format||[]).join(',');
+      $('#fqCodec').value = (cfg.prefer_codec||[]).join(',');
+      $('#fqSource').value = (cfg.prefer_source||[]).join(',');
+      $('#fqHdr').checked = cfg.hdr_prefer !== false;
+      $('#fqLang').value = cfg.wanted_lang || 'en_prefer';
+      $('#fqSizeMin').value = cfg.size_min_gb||0;
+      $('#fqSizeMax').value = cfg.size_max_gb||0;
+      ['#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax','#fqLang']
+        .forEach(k=>$(k).dataset.init='1');
+    }
+    // 搜索周期状态
+    $('#cfgSearchNote').innerHTML = cfg._search_due
+      ? `🔍 ${esc(cfg._search_note||'')}`
+      : `⏳ ${esc(cfg._search_note||'')}`;
+    // 排队中的集数
+    const wkeys=Object.keys(waiting||{});
+    $('#waiting').innerHTML = wkeys.length
+      ? wkeys.map(n=>{const eps=Object.entries(waiting[n]||{}).map(([e,r])=>`${e} <span class="dim">(${esc(r)})</span>`).join(', ');
+                      return `<div class="item"><div class="t"><b>${esc(n)}</b> — ${eps}</div></div>`}).join('')
+      : '暂无';
+
+    // 事件
+    $('#events').textContent=events.map(l=>l.trim()).join('\n')||'无';
+  }catch(e){flash('刷新失败: '+e,false)}
+}
+refresh();setInterval(refresh,15000);
+</script>
+</body>
+</html>

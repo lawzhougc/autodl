@@ -16,7 +16,8 @@ CONFIG_KEYS = ["batch_size", "batch_interval_hours", "backfill_enabled",
                "search_interval_hours",
                # 资源筛选偏好
                "quality_fallback", "prefer_format", "allow_format",
-               "size_min_gb", "size_max_gb", "prefer_codec", "prefer_source", "hdr_prefer"]
+               "size_min_gb", "size_max_gb", "prefer_codec", "prefer_source", "hdr_prefer",
+               "wanted_lang"]
 
 WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = 8770
@@ -131,7 +132,8 @@ class H(BaseHTTPRequestHandler):
                     seen.add(sig); uniq.append(r)
                 items = [{"title": r["title"], "seeders": r["seeders"], "size": r["size"],
                           "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
-                          "magnet": bool(r["magnet"]), "ita": r["_p"]["ita"]}
+                          "magnet": bool(r["magnet"]),
+                          "langs": sorted(r["_p"].get("langs") or [])}
                          for r in uniq[:20]]
                 best = pick(results, g.CFG["wanted_quality"]) if kind == "movie" else \
                     (pick(results, int(re.search(r"S(\d+)E(\d+)", q, re.I).group(1)),
@@ -140,7 +142,8 @@ class H(BaseHTTPRequestHandler):
                 lo = sorted([r for r in results if g.parse_title(r["title"])["quality"] == "1080p" and not g.parse_title(r["title"])["bad"]],
                             key=lambda r: -r["seeders"])[:8]
                 lo_items = [{"title": r["title"], "seeders": r["seeders"],
-                             "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"]} for r in lo]
+                             "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
+                             "langs": sorted(g.parse_title(r["title"]).get("langs") or [])} for r in lo]
                 return self._json(200, {"kind": kind, "total": len(results), "q4k": items,
                                         "best": best["title"] if best else None,
                                         "lo1080": lo_items, "recognized": trans if trans != orig else None, "orig": orig,

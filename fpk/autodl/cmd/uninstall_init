@@ -1,0 +1,8 @@
+#!/bin/bash
+# 卸载前: 清理 crontab 中的定时任务
+BEGIN="# >>> autodl begin"
+END="# <<< autodl end"
+if command -v crontab >/dev/null 2>&1; then
+    crontab -l 2>/dev/null | sed "/${BEGIN}/,/${END}/d" | crontab - 2>/dev/null
+fi
+exit 0

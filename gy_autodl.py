@@ -20,10 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-# 光鸭本地 Web 服务端口(见光鸭云盘 App 设置)
-GY = os.environ.get("GY_URL", "http://127.0.0.1:8998")
-# Jackett 地址与它的配置文件(用于自动读取 APIKey)
-JT = os.environ.get("JACKETT_URL", "http://127.0.0.1:9117")
+GY = "http://127.0.0.1:8998"
+JT = "http://127.0.0.1:9117"
 JT_CFG = os.environ.get("JACKETT_CONFIG",
                         "/volume1/@appdata/jackett/data/ServerConfig.json")
 LOG = os.path.join(BASE, "logs", "run.log")
@@ -55,6 +53,8 @@ DEFAULT_CFG = {
     "prefer_codec": [],              # 编码偏好, 如 ["hevc","av1","h264"]; 空=不限
     "prefer_source": [],             # 片源偏好, 如 ["remux","bluray","web"]; 空=用默认权重
     "hdr_prefer": True,              # 是否优先 HDR/DV 版本
+    # ---- 语种偏好 ----
+    "wanted_lang": "en_prefer",      # en_prefer=只用英语版(外语版仅兜底) / en_only=排除含外语标签 / any=不限
     "search_timeout": 45,
     "cloud_stale_hours": 72,
     "subtitle_langs": ["zh"],
@@ -263,6 +263,45 @@ RE_BAD = re.compile(r"\b(cam|telesync|\bts\b|tc\b|screener|dvdscr|hdts|hdcam)\b"
 RE_Q2160 = re.compile(r"2160|4k|uhd", re.I)
 RE_Q1080 = re.compile(r"1080", re.I)
 RE_ITA = re.compile(r"\b(ita|italian)\b|\bmultip[le]*\b", re.I)
+# 语种识别: 明确标注的语种标签(资源名常见形态)
+LANG_TAGS = {
+    "eng": r"\b(eng|english)\b",
+    "ita": r"\b(ita|italian)\b", "ger": r"\b(ger|german|deutsch)\b",
+    "fre": r"\b(fre|french|vff|vfq)\b", "spa": r"\b(spa|spanish|castellano)\b",
+    "rus": r"\b(rus|russian)\b", "jpn": r"\b(jpn|japanese)\b",
+    "kor": r"\b(kor|korean)\b", "chi": r"\b(chi|chinese|mandarin|cantonese)\b",
+    "multi": r"\b(multi|multiple|multip)\b",
+}
+RE_LANG = {k: re.compile(v, re.I) for k, v in LANG_TAGS.items()}
+
+def parse_langs(t):
+    """从标题解析语种标签集合; 无标签返回空集合(大多数英文资源不标语种)"""
+    return {k for k, pat in RE_LANG.items() if pat.search(t)}
+
+def lang_ok(langs):
+    """语种过滤: 按配置决定是否只保留英语资源"""
+    mode = (CFG.get("wanted_lang") or "en_prefer").lower()
+    if mode in ("any", ""):
+        return True
+    others = langs - {"eng", "multi"}
+    if mode == "en_only":
+        # 严格: 有任何非英语语种标签就排除(未标语种视为英语资源, 放行)
+        return not others
+    if mode == "en_prefer":   # 默认: 只用英语版本, 非英语资源仅在无英语版时兜底
+        return True
+    return True
+
+def lang_score(langs):
+    """语种排序权重: 越小越优先"""
+    mode = (CFG.get("wanted_lang") or "en_prefer").lower()
+    if mode in ("any", ""):
+        return 0
+    others = langs - {"eng", "multi"}
+    if not others:
+        return 0        # 纯英语 / 未标语种 / 多语 → 第一梯队
+    if mode == "en_only":
+        return 9        # 严格模式下已被 lang_ok 挡掉
+    return 1            # 含外语标签 → 降权(仅兜底)
 
 RE_FMT = {"mkv": r"\b(mkv|matroska)\b", "mp4": r"\b(mp4|m4v)\b",
          "avi": r"\bavi\b", "ts": r"\b(m2ts|ts)\b", "iso": r"\biso\b"}
@@ -311,6 +350,7 @@ def pref_score(p):
 def parse_title(t):
     d = {"title": t, "ep": None, "ep_end": None, "season": None, "season_pack": None,
          "quality": None, "bad": bool(RE_BAD.search(t)), "ita": bool(RE_ITA.search(t)),
+         "langs": parse_langs(t),
          "proper": bool(re.search(r"\b(repack|proper)\b", t, re.I)),
          "dv": bool(re.search(r"\b(dv|dovi|dolby.?vision)\b", t, re.I)),
          "hdr": bool(re.search(r"hdr", t, re.I)), "remux": bool(re.search(r"remux", t, re.I)),
@@ -333,7 +373,8 @@ def rank_key(r):
     p = r["_p"]
     src = 0 if p["remux"] else (1 if p["bluray"] else (2 if p["web"] else 3))
     dv = 0 if ((p["dv"] or p["hdr"]) and CFG.get("hdr_prefer", True)) else (1 if not (p["dv"] or p["hdr"]) else 2)
-    return (p["ita"], not p["proper"], src) + pref_score(p) + (dv, -r["seeders"], -r["size"])
+    return (lang_score(p.get("langs") or set()), not p["proper"], src) + \
+           pref_score(p) + (dv, -r["seeders"], -r["size"])
 
 def show_key(name): return re.sub(r"\s+", " ", name).strip().title()
 
@@ -634,6 +675,7 @@ def best_for_episode(results, s, e, quality="2160p"):
         p = parse_title(r["title"])
         if p["bad"] or p["quality"] != quality: continue
         if not format_allowed(p) or not size_ok(r["size"] / (1024 ** 3)): continue
+        if not lang_ok(p.get("langs") or set()): continue
         if p["ep"] == e and p["season"] == s: cands.append(r)          # 单集
         elif p["ep"] and p["season"] == s and p["ep"] <= e <= (p["ep_end"] or p["ep"]): cands.append(r)  # 范围包
         elif p["season_pack"] == s and p["ep"] is None: cands.append(r)  # 整季包
@@ -647,6 +689,7 @@ def best_for_movie(results, quality="2160p"):
         p = parse_title(r["title"])
         if p["bad"] or p["quality"] != quality or p["ep"] is not None: continue
         if not format_allowed(p) or not size_ok(r["size"] / (1024 ** 3)): continue
+        if not lang_ok(p.get("langs") or set()): continue
         r["_p"] = p; cands.append(r)
     return min(cands, key=rank_key, default=None)
 
@@ -834,6 +877,7 @@ def search_new_episodes(st, dry=False):
                 continue
             if p["quality"] not in wanted_qualities(): continue
             if not format_allowed(p) or not size_ok(r["size"] / (1024 ** 3)): continue
+            if not lang_ok(p.get("langs") or set()): continue
             if (p["ep"],) <= (last_e,): continue
             r["_p"] = p
             if p["ep"] not in by_ep or rank_key(r) < rank_key(by_ep[p["ep"]]):
@@ -965,7 +1009,8 @@ def cmd_search(args):
     for r in uniq[:12]:
         p = parse_title(r["title"])
         print(f"  2160p | {r['title'][:62]} | {r['seeders']}seeds | {r['size']//MB}MB | {r['idx']}"
-              f"{' | ITA' if p['ita'] else ''}{' | magnet' if r['magnet'] else ' | 种子'}")
+              f"{(' | ' + ','.join(sorted(l.upper() for l in p['langs']))) if p['langs'] else ''}"
+              f"{' | magnet' if r['magnet'] else ' | 种子'}")
     if best:
         print(f"\n★ 推荐: {best['title']}\n  {best['seeders']}seeds {best['size']//MB}MB {best['idx']}")
     elif q4k:

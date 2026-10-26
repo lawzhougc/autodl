@@ -154,6 +154,13 @@ a{color:var(--acc);text-decoration:none}
       <tr><td>片源偏好</td>
           <td><input id="fqSource" type="text" style="width:190px" placeholder="remux,bluray,web">
           <span class="dim">— 逗号分隔；留空=用默认权重(REMUX&gt;BluRay&gt;WEB)</span></td></tr>
+      <tr><td>语种偏好</td>
+          <td><select id="fqLang">
+            <option value="en_prefer">只用英语版（外语版仅兜底）</option>
+            <option value="en_only">严格英语（排除含外语标签的资源）</option>
+            <option value="any">不限语种</option>
+          </select>
+          <span class="dim">— 默认「只用英语版」：意/德/法/俄等外语资源排在英语版之后</span></td></tr>
       <tr><td>优先 HDR/杜比视界</td>
           <td><label><input id="fqHdr" type="checkbox"> 开启</label>
           <span class="dim">— 同条件下优先 HDR / Dolby Vision 版本</span></td></tr>
@@ -205,12 +212,13 @@ async function saveFq(){
               prefer_codec:$('#fqCodec').value,
               prefer_source:$('#fqSource').value,
               hdr_prefer:$('#fqHdr').checked,
+              wanted_lang:$('#fqLang').value,
               size_min_gb:+$('#fqSizeMin').value||0,
               size_max_gb:+$('#fqSizeMax').value||0};
   try{await jpost('/api/config',body);
     $('#fqSaved').textContent='已保存 '+new Date().toLocaleTimeString();
     flash('筛选偏好已保存');
-    ['#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax']
+    ['#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax','#fqLang']
       .forEach(k=>delete $(k).dataset.init);
     document.querySelectorAll('.fmtAllowed').forEach(x=>delete x.dataset.init);
     refresh();
@@ -238,7 +246,7 @@ async function doSearch(){
     if(d.best)h+=`<div class="item"><div class="t">★ 推荐: <b>${d.best}</b></div><button class="mini" onclick="download('${esc(q)}')">⬇ 下载推荐</button></div>`;
     if(!d.q4k.length&&d.lo1080.length)h+='<div class="dim mt">无4K资源, 1080p候选:</div>';
     d.q4k.forEach(r=>{
-      h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${r.ita?' · ITA':''}</span></div>
+      h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${r.langs&&r.langs.length?' · '+r.langs.join(',').toUpperCase():''}</span></div>
       <button class="mini" onclick="download('${esc(q)}')">⬇ 推荐</button></div>`;
     });
     d.lo1080.forEach(r=>{
@@ -305,9 +313,10 @@ async function refresh(){
       $('#fqCodec').value = (cfg.prefer_codec||[]).join(',');
       $('#fqSource').value = (cfg.prefer_source||[]).join(',');
       $('#fqHdr').checked = cfg.hdr_prefer !== false;
+      $('#fqLang').value = cfg.wanted_lang || 'en_prefer';
       $('#fqSizeMin').value = cfg.size_min_gb||0;
       $('#fqSizeMax').value = cfg.size_max_gb||0;
-      ['#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax']
+      ['#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax','#fqLang']
         .forEach(k=>$(k).dataset.init='1');
     }
     // 搜索周期状态

@@ -1,0 +1,14 @@
+{
+    ".url": {
+        "autodl.Application": {
+            "title": "影视资源自动追踪控制台",
+            "desc": "多源搜索 → 网盘离线 → NAS 下载 → 自动字幕",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "http",
+            "port": "8770",
+            "url": "/",
+            "allUsers": false
+        }
+    }
+}

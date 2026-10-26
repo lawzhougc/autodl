@@ -1,0 +1,37 @@
+#!/bin/bash
+# 安装后回调: 检查运行依赖是否齐备
+INSTALL_DIR="${TRIM_APPDEST}/server"
+
+check_dep() {
+    if command -v "$1" >/dev/null 2>&1; then
+        echo "  [OK]   $1"
+    else
+        echo "  [缺失] $1 —— $2"
+    fi
+}
+
+{
+    echo "== 影视资源自动追踪控制台 依赖检查 =="
+    check_dep python3 "应用必需"
+    check_dep aria2c  "NAS 下载必需，请先安装 aria2"
+    check_dep ffmpeg  "字幕转换需要用，建议安装"
+    check_dep ffprobe "字幕提取需要用，建议安装"
+
+    if curl -s -m 3 http://127.0.0.1:8998/api/user >/dev/null 2>&1; then
+        echo "  [OK]   光鸭云盘 App (8998)"
+    else
+        echo "  [提示] 光鸭云盘 App 未运行 —— 本应用依赖它做云下载与下载到NAS"
+    fi
+
+    if curl -s -m 3 "http://127.0.0.1:9117/api/v2.0/indexers" >/dev/null 2>&1 \
+       || curl -s -m 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:9117/ 2>/dev/null | grep -qE "200|302"; then
+        echo "  [OK]   Jackett (9117)"
+    else
+        echo "  [提示] Jackett 未运行 —— 本应用依赖它搜索资源"
+    fi
+
+    echo
+    echo "请打开应用修改配置：媒体库路径、SubHD 账号（字幕用）"
+} >> "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>&1
+
+exit 0

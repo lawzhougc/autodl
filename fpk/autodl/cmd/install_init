@@ -1,0 +1,7 @@
+#!/bin/bash
+# 安装前检查: 端口是否被占用
+if command -v ss >/dev/null 2>&1 && ss -lnt 2>/dev/null | grep -q ":8770 "; then
+    echo "端口 8770 已被占用，请先停止占用该端口的程序后重试。" > "${TRIM_TEMP_LOGFILE:-/dev/null}"
+    exit 1
+fi
+exit 0
