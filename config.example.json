@@ -1,0 +1,41 @@
+{
+ "subhd_email": "",
+ "subhd_password": "",
+ "batch_size": 2,
+ "batch_interval_hours": 24.0,
+ "backfill_enabled": true,
+ "auto_download_new": true,
+ "max_submit_per_run": 3,
+ "wanted_quality": "2160p",
+ "quality_fallback": [],
+ "prefer_format": [
+  "mkv"
+ ],
+ "allow_format": [],
+ "size_min_gb": 0,
+ "size_max_gb": 0,
+ "prefer_codec": [],
+ "prefer_source": [],
+ "hdr_prefer": true,
+ "search_interval_hours": 24,
+ "search_at_hour": 13,
+ "search_timeout": 45,
+ "cloud_stale_hours": 72,
+ "min_video_mb": 300,
+ "subtitle_langs": [
+  "zh"
+ ],
+ "media_root": "/path/to/your/media/library",
+ "cloud_root": "自动下载",
+ "indexers": [
+  "thepiratebay",
+  "knaben",
+  "therarbg",
+  "limetorrents",
+  "torrentgalaxyclone",
+  "uindex"
+ ],
+ "native_sources": [
+  "bt4g"
+ ]
+}
