@@ -20,12 +20,16 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+# fpk 安装时: 代码在 ${TRIM_APPDEST}/server, 用户数据在 ${TRIM_PKGVAR}
+# 脚本模式时: 配置与状态就在脚本同目录
+_VAR = os.environ.get("TRIM_PKGVAR", "")
+DATA = _VAR if (_VAR and os.path.isdir(_VAR)) else BASE
 GY = "http://127.0.0.1:8998"
 JT = "http://127.0.0.1:9117"
 JT_CFG = os.environ.get("JACKETT_CONFIG",
                         "/volume1/@appdata/jackett/data/ServerConfig.json")
-LOG = os.path.join(BASE, "logs", "run.log")
-EV = os.path.join(BASE, "logs", "events.log")
+LOG = os.path.join(DATA, "logs", "run.log")
+EV = os.path.join(DATA, "logs", "events.log")
 MB = 1024 * 1024
 
 DEFAULT_CFG = {
@@ -85,7 +89,7 @@ def save_json(path, data):
     with open(tmp, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=1)
     os.replace(tmp, path)
 
-CFG_F = os.path.join(BASE, "config.json")
+CFG_F = os.path.join(DATA, "config.json")
 CFG = dict(DEFAULT_CFG, **load_json(CFG_F, {}))
 
 def save_cfg(updates):
@@ -96,8 +100,8 @@ def save_cfg(updates):
         json.dump(cur, f, ensure_ascii=False, indent=1)
     CFG.update(updates or {})
     return CFG
-SHOWS_F = os.path.join(BASE, "shows.json")
-STATE_F = os.path.join(BASE, "state.json")
+SHOWS_F = os.path.join(DATA, "shows.json")
+STATE_F = os.path.join(DATA, "state.json")
 
 # ---------------------------------------------------------------- HTTP
 def http(url, data=None, headers=None, timeout=30, method=None):
