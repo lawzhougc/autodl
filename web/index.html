@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>影视资源自动追踪控制台</title>
 <style>
-:root{--bg:#0f1420;--card:#1a2130;--line:#2a3347;--tx:#e6ebf4;--dim:#8a94a8;--acc:#4f8cff;--ok:#3fb96f;--warn:#e0a13f;--bad:#e05c5c;--side:#131a28}
+:root{--bg:#0f1420;--card:#1a2130;--line:#2a3347;--tx:#e6ebf4;--dim:#8a94a8;--acc:#4f8cff;--ok:#3fb96f;--warn:#e0a13f;--bad:#e05c5c;--side:#131a28;--hov:#1c2536;--inp:#0d1119;--rowline:#212a3c;--barbg:#0d1119;--tagcloud:#3a2f12;--tagcloud-tx:var(--warn);--tag-nas-bg:#122a3a;--flash-ok-bg:#12321f;--flash-ok-tx:var(--ok);--flash-err-bg:#3a1212;--flash-err-tx:var(--bad)}
+html[data-theme=light]{--bg:#f3f5f9;--card:#ffffff;--line:#dfe4ec;--tx:#1c2433;--dim:#68727f;--acc:#2f6fe0;--ok:#1f9d55;--warn:#b97a12;--bad:#d64545;--side:#ffffff;--hov:#eef2f8;--inp:#f6f8fb;--rowline:#eceff4;--barbg:#e8ecf2;--tagcloud:#faf0dc;--tagcloud-tx:#9a6a08;--tag-nas-bg:#e3f1fb;--flash-ok-bg:#e4f5ea;--flash-ok-tx:#1f7a44;--flash-err-bg:#fdeaea;--flash-err-tx:#c0392b}
+body{transition:background .2s,color .2s}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--tx);font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;display:flex;min-height:100vh}
 /* ---- 左侧导航 ---- */
@@ -14,7 +16,7 @@ body{background:var(--bg);color:var(--tx);font:15px/1.6 -apple-system,"PingFang 
 #side .sub{color:var(--dim);font-size:11px;padding:0 10px 14px;line-height:1.5}
 #side nav{display:flex;flex-direction:column;gap:4px}
 #side nav button{display:flex;align-items:center;gap:9px;background:transparent;border:0;color:var(--dim);padding:10px 12px;border-radius:9px;font-size:14px;cursor:pointer;text-align:left;width:100%}
-#side nav button:hover{background:#1c2536;color:var(--tx)}
+#side nav button:hover{background:var(--hov);color:var(--tx)}
 #side nav button.on{background:var(--acc);color:#fff}
 #side nav button .pill{margin-left:auto;margin-right:0;font-size:11px;padding:0 7px}
 #side .foot{margin-top:auto;padding:10px;font-size:11px;color:var(--dim);line-height:1.7}
@@ -27,8 +29,8 @@ h1{font-size:20px;margin-bottom:2px}
 .page.on{display:block}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
 h2{font-size:16px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
-input[type=text]{background:#0d1119;border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px;width:100%}
-input[type=number]{background:#0d1119;border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px}
+input[type=text]{background:var(--inp);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px;width:100%}
+input[type=number]{background:var(--inp);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px}
 input:focus{outline:none;border-color:var(--acc)}
 .row{display:flex;gap:8px;align-items:center}
 button{background:var(--acc);border:0;border-radius:8px;color:#fff;padding:9px 16px;font-size:14px;cursor:pointer;white-space:nowrap}
@@ -36,24 +38,24 @@ button:hover{filter:brightness(1.15)}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
 button.mini{padding:4px 10px;font-size:12px;border-radius:6px}
 button.bad{background:var(--bad)}
-select{background:#0d1119;border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 10px;font-size:14px}
+select{background:var(--inp);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 10px;font-size:14px}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th{color:var(--dim);font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px}
-td{padding:8px;border-bottom:1px solid #212a3c;vertical-align:top}
+td{padding:8px;border-bottom:1px solid var(--rowline);vertical-align:top}
 .tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px}
-.tag.cloud{background:#3a2f12;color:var(--warn)}
-.tag.nas{background:#122a3a;color:#57b6f0}
-.tag.done{background:#12321f;color:var(--ok)}
-.tag.failed{background:#3a1212;color:var(--bad)}
+.tag.cloud{background:var(--tagcloud);color:var(--tagcloud-tx)}
+.tag.nas{background:var(--tag-nas-bg);color:#57b6f0}
+.tag.done{background:var(--flash-ok-bg);color:var(--flash-ok-tx)}
+.tag.failed{background:var(--flash-err-bg);color:var(--flash-err-tx)}
 .dim{color:var(--dim);font-size:13px}
-.bar{height:6px;background:#0d1119;border-radius:4px;overflow:hidden;margin-top:4px}
+.bar{height:6px;background:var(--inp);border-radius:4px;overflow:hidden;margin-top:4px}
 .bar i{display:block;height:100%;background:var(--acc)}
-#searchRes .item,.item{padding:8px;border-bottom:1px solid #212a3c;display:flex;justify-content:space-between;gap:10px;align-items:center}
+#searchRes .item,.item{padding:8px;border-bottom:1px solid var(--rowline);display:flex;justify-content:space-between;gap:10px;align-items:center}
 #searchRes .t,.item .t{flex:1;min-width:0}
 #searchRes .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13.5px}
 .flash{padding:8px 12px;border-radius:8px;margin:0 0 14px;font-size:13.5px;display:none}
-.flash.ok{display:block;background:#12321f;color:var(--ok)}
-.flash.err{display:block;background:#3a1212;color:var(--bad)}
+.flash.ok{display:block;background:var(--flash-ok-bg);color:var(--flash-ok-tx)}
+.flash.err{display:block;background:var(--flash-err-bg);color:var(--flash-err-tx)}
 .mt{margin-top:10px}
 .mb{margin-bottom:10px}
 .pill{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:2px 10px;margin-right:6px}
@@ -83,6 +85,7 @@ a{color:var(--acc);text-decoration:none}
     <button data-page="log">📜 日志</button>
   </nav>
   <div class="foot">
+    <button id="themeBtn" class="ghost" onclick="toggleTheme()" style="width:100%;padding:7px 10px;font-size:13px">🌙 夜间模式</button>
     <a href="http://192.168.1.3:8998" target="_blank">光鸭网盘 ↗</a>
     <a href="http://192.168.1.3:9117" target="_blank">Jackett ↗</a>
   </div>
@@ -271,6 +274,18 @@ function showPage(id,silent){
   try{localStorage.setItem('autodl_page',id)}catch(e){}
   if(id==='log') refreshLog();
 }
+
+/* ---- 主题切换（日间/夜间） ---- */
+function applyTheme(t){
+  document.documentElement.dataset.theme=t;
+  const b=$('#themeBtn');
+  if(b) b.textContent = t==='light' ? '☀️ 日间模式' : '🌙 夜间模式';
+  try{localStorage.setItem('autodl_theme',t)}catch(e){}
+}
+function toggleTheme(){
+  applyTheme(document.documentElement.dataset.theme==='light' ? 'dark' : 'light');
+}
+applyTheme((()=>{try{return localStorage.getItem('autodl_theme')}catch(e){return null}})()||'dark');
 document.querySelectorAll('#side nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
 showPage((()=>{try{return localStorage.getItem('autodl_page')}catch(e){return null}})()||'home',true);
 
