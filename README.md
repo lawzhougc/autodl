@@ -218,8 +218,11 @@ cron（root）：`13 * * * *` 每小时第 13 分执行 `run`，日志 `logs/cro
 ## 状态与日志
 
 - `state.json`：任务状态机（cloud → nas → done/failed），已处理 infohash 防重复。
-- `logs/run.log`：运行日志；`logs/events.log`：关键事件（提交/完成/失败）。
+- `logs/run.log`：每轮运行完整过程；`logs/events.log`：关键事件（提交/完成/失败/字幕）。
+- `logs/cron.log`：crontab 触发的定时输出；`logs/webjobs.log`：Web 控制台触发的下载记录。
 - 失败自动重试 2 次；云任务 72h 超时判失败；30 天后清理历史记录。
+
+Web 控制台的「📜 运行日志」卡片可实时查看所有日志源，支持切换来源（事件/运行/定时任务/网页下载）和行数（100/300/1000 行）。API：`GET /api/logs?src=events&lines=200`（src 可选 events/run/cron/web）
 
 ## 资源筛选偏好
 
