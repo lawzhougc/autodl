@@ -9,6 +9,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
+# fpk 安装时用户数据在 TRIM_PKGVAR, 脚本模式在代码目录
+_VAR = os.environ.get("TRIM_PKGVAR", "")
+DATA = _VAR if (_VAR and os.path.isdir(_VAR)) else BASE
 import gy_autodl as g  # noqa: E402
 
 CONFIG_KEYS = ["batch_size", "batch_interval_hours", "backfill_enabled",
@@ -21,7 +24,7 @@ CONFIG_KEYS = ["batch_size", "batch_interval_hours", "backfill_enabled",
 
 WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = 8770
-WISH_F = os.path.join(BASE, "wishlist.json")   # {key: {name,kind,added,note}}
+WISH_F = os.path.join(DATA, "wishlist.json")   # {key: {name,kind,added,note}}
 
 def wishes():
     return g.load_json(WISH_F, {})
@@ -44,7 +47,7 @@ def async_run(args, tag):
             line = f"{time.strftime('%m-%d %H:%M:%S')}\t{tag}\trc={rc}\t{out[-1500:]}"
         except Exception as e:
             line = f"{time.strftime('%m-%d %H:%M:%S')}\t{tag}\tERROR\t{e}"
-        with open(os.path.join(BASE, "logs", "webjobs.log"), "a", encoding="utf-8") as f:
+        with open(os.path.join(DATA, "logs", "webjobs.log"), "a", encoding="utf-8") as f:
             f.write(line + "\n" + ("-" * 60) + "\n")
     threading.Thread(target=worker, daemon=True).start()
 
@@ -109,6 +112,33 @@ class H(BaseHTTPRequestHandler):
                         return self._json(200, f.readlines()[-40:])
                 except Exception:
                     return self._json(200, [])
+            if self.path.startswith("/api/logs"):
+                # /api/logs?src=events|run|cron|web&lines=200
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                src = (qs.get("src", ["events"])[0] or "events").lower()
+                try:
+                    lines = max(10, min(2000, int(qs.get("lines", ["200"])[0])))
+                except ValueError:
+                    lines = 200
+                files = {
+                    "events": g.EV,
+                    "run": g.LOG,
+                    "cron": os.path.join(g.DATA, "logs", "cron.log"),
+                    "web": os.path.join(g.DATA, "logs", "webjobs.log"),
+                }
+                path = files.get(src)
+                if not path:
+                    return self._json(400, {"error": f"unknown src: {src}"})
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as f:
+                        tail = f.readlines()[-lines:]
+                    return self._json(200, {"src": src, "lines": len(tail),
+                                            "file": path, "tail": [l.rstrip("\n") for l in tail]})
+                except FileNotFoundError:
+                    return self._json(200, {"src": src, "lines": 0, "file": path, "tail": []})
+                except Exception as ex:
+                    return self._json(200, {"src": src, "lines": 0, "file": path,
+                                            "tail": [], "error": str(ex)})
             if self.path.startswith("/api/search?"):
                 q = urllib.parse.unquote(self.path.split("q=", 1)[1])
                 orig = q
@@ -242,7 +272,7 @@ if __name__ == "__main__":
         pass
     finally:
         s.close()
-    os.makedirs(os.path.join(BASE, "logs"), exist_ok=True)
+    os.makedirs(os.path.join(DATA, "logs"), exist_ok=True)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     print(f"gy_autodl web on :{PORT}", flush=True)
     srv.serve_forever()

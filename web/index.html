@@ -180,7 +180,22 @@ a{color:var(--acc);text-decoration:none}
 </div>
 
 <div class="card">
-  <h2>📜 近期事件</h2>
+  <h2>📜 运行日志</h2>
+  <div class="mb" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <select id="logSrc" onchange="refreshLog()">
+      <option value="events">事件（下载/字幕/追剧动作）</option>
+      <option value="run">运行（每轮完整过程）</option>
+      <option value="cron">定时任务</option>
+      <option value="web">网页触发的下载</option>
+    </select>
+    <select id="logLines" onchange="refreshLog()">
+      <option value="100">最近 100 行</option>
+      <option value="300">最近 300 行</option>
+      <option value="1000">最近 1000 行</option>
+    </select>
+    <button onclick="refreshLog()" class="mini">刷新</button>
+    <span class="dim" id="logMeta" style="font-size:11px"></span>
+  </div>
   <div class="events" id="events">加载中…</div>
 </div>
 
@@ -330,10 +345,23 @@ async function refresh(){
                       return `<div class="item"><div class="t"><b>${esc(n)}</b> — ${eps}</div></div>`}).join('')
       : '暂无';
 
-    // 事件
-    $('#events').textContent=events.map(l=>l.trim()).join('\n')||'无';
+    // 日志（独立于 15s 轮询，切源/刷行数时立即重取）
+    $('#events').textContent=(events||[]).map(l=>l.trim()).join('\n')||'无';
   }catch(e){flash('刷新失败: '+e,false)}
 }
+async function refreshLog(){
+  const box=$('#events'); box.textContent='加载中…';
+  try{
+    const src=$('#logSrc').value, lines=$('#logLines').value;
+    const d=await jget(`/api/logs?src=${src}&lines=${lines}`);
+    box.textContent=d.tail.join('\n')||'（暂无日志）';
+    $('#logMeta').textContent=`${d.file} · ${d.lines} 行`;
+  }catch(e){box.textContent='加载失败: '+e}
+}
+// 事件源跟随 15s 轮询自动刷新；其它源只在手动/切换时刷新
+const _refresh=refresh;
+refresh=async function(){await _refresh();
+  if($('#logSrc').value==='events') await refreshLog();}
 refresh();setInterval(refresh,15000);
 </script>
 </body>
