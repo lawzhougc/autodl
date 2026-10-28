@@ -86,8 +86,8 @@ a{color:var(--acc);text-decoration:none}
   </nav>
   <div class="foot">
     <button id="themeBtn" class="ghost" onclick="toggleTheme()" style="width:100%;padding:7px 10px;font-size:13px">🌙 夜间模式</button>
-    <a href="http://192.168.1.3:8998" target="_blank">光鸭网盘 ↗</a>
-    <a href="http://192.168.1.3:9117" target="_blank">Jackett ↗</a>
+    <a id="linkGuangya" href="javascript:void(0)" onclick="openHostPort(8998)" target="_blank">光鸭网盘 ↗</a>
+    <a id="linkJackett" href="javascript:void(0)" onclick="openHostPort(9117)" target="_blank">Jackett ↗</a>
   </div>
 </aside>
 
@@ -288,6 +288,18 @@ async function jpost(u,b){const r=await fetch(u,{method:'POST',headers:{'Content
 function api(u,msg){return jpost(u).then(()=>{flash(msg);refresh()}).catch(e=>flash(e,false))}
 
 /* ---- 标签导航 ---- */
+function openHostPort(port){
+  const host = location.hostname || '127.0.0.1';
+  window.open(`http://${host}:${port}`, '_blank');
+}
+function updateHostLinks(){
+  const host = location.hostname || '127.0.0.1';
+  const gy = $('#linkGuangya'), jt = $('#linkJackett');
+  if(gy) gy.href = `http://${host}:8998`;
+  if(jt) jt.href = `http://${host}:9117`;
+}
+updateHostLinks();
+
 function showPage(id,silent){
   document.querySelectorAll('.page').forEach(p=>p.classList.toggle('on',p.id==='page-'+id));
   document.querySelectorAll('#side nav button').forEach(b=>b.classList.toggle('on',b.dataset.page===id));
