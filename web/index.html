@@ -233,6 +233,26 @@ a{color:var(--acc);text-decoration:none}
   <div class="mt"><button class="mini" onclick="saveFq()">💾 保存偏好</button></div>
   <div class="dim mt" id="fqSaved"></div>
 </div>
+
+<div class="card mt">
+  <h2>🔌 Jackett 服务配置</h2>
+  <div class="dim mb">如未手动指定，系统会自动扫描 NAS 各存储卷及运行进程定位 ServerConfig.json 并提取 APIKey。若提示找不到或部署在其它机器，可在此手动指定。</div>
+  <table class="form-table">
+    <tbody>
+      <tr><td>服务地址</td>
+          <td><input id="cfgJtUrl" type="text" style="width:260px" placeholder="http://127.0.0.1:9117">
+          <span class="dim">— 默认 http://127.0.0.1:9117</span></td></tr>
+      <tr><td>APIKey</td>
+          <td><input id="cfgJtKey" type="password" style="width:260px" placeholder="留空则自动从配置文件读取">
+          <span class="dim">— 在 Jackett 控制台右上角可复制</span></td></tr>
+      <tr><td>配置文件路径</td>
+          <td><input id="cfgJtPath" type="text" style="width:360px" placeholder="留空自动检测（如 /vol1/@appdata/jackett/data/ServerConfig.json）">
+          <span class="dim">— 留空自动搜索所有 /vol*/@appdata/jackett/data/ 卷</span></td></tr>
+    </tbody>
+  </table>
+  <div class="mt"><button class="mini" onclick="saveJt()">💾 保存 Jackett 配置</button></div>
+  <div class="dim mt" id="jtSaved"></div>
+</div>
 </div>
 
 <!-- ============ 日志 ============ -->
@@ -320,6 +340,18 @@ async function saveFq(){
     ['#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax','#fqLang']
       .forEach(k=>delete $(k).dataset.init);
     document.querySelectorAll('.fmtAllowed').forEach(x=>delete x.dataset.init);
+    refresh();
+  }catch(e){flash(e,false)}
+}
+
+async function saveJt(){
+  const body={jackett_url:$('#cfgJtUrl').value.trim()||'http://127.0.0.1:9117',
+              jackett_apikey:$('#cfgJtKey').value.trim(),
+              jackett_config:$('#cfgJtPath').value.trim()};
+  try{await jpost('/api/config',body);
+    $('#jtSaved').textContent='已保存 '+new Date().toLocaleTimeString();
+    flash('Jackett 配置已保存');
+    ['#cfgJtUrl','#cfgJtKey','#cfgJtPath'].forEach(k=>delete $(k).dataset.init);
     refresh();
   }catch(e){flash(e,false)}
 }
@@ -422,6 +454,13 @@ async function refresh(){
       $('#fqSizeMax').value = cfg.size_max_gb||0;
       ['#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax','#fqLang']
         .forEach(k=>$(k).dataset.init='1');
+    }
+    // ---- Jackett 配置回填 ----
+    if(!$('#cfgJtUrl').dataset.init){
+      $('#cfgJtUrl').value = cfg.jackett_url || '';
+      $('#cfgJtKey').value = cfg.jackett_apikey || '';
+      $('#cfgJtPath').value = cfg.jackett_config || '';
+      ['#cfgJtUrl','#cfgJtKey','#cfgJtPath'].forEach(k=>$(k).dataset.init='1');
     }
     // 搜索周期状态
     $('#cfgSearchNote').innerHTML = cfg._search_due

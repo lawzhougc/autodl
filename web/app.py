@@ -20,7 +20,9 @@ CONFIG_KEYS = ["batch_size", "batch_interval_hours", "backfill_enabled",
                # 资源筛选偏好
                "quality_fallback", "prefer_format", "allow_format",
                "size_min_gb", "size_max_gb", "prefer_codec", "prefer_source", "hdr_prefer",
-               "wanted_lang"]
+               "wanted_lang",
+               # 服务与依赖配置
+               "jackett_url", "jackett_apikey", "jackett_config"]
 
 WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = 8770

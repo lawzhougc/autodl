@@ -26,13 +26,14 @@ _VAR = os.environ.get("TRIM_PKGVAR", "")
 DATA = _VAR if (_VAR and os.path.isdir(_VAR)) else BASE
 GY = "http://127.0.0.1:8998"
 JT = "http://127.0.0.1:9117"
-JT_CFG = os.environ.get("JACKETT_CONFIG",
-                        "/volume1/@appdata/jackett/data/ServerConfig.json")
 LOG = os.path.join(DATA, "logs", "run.log")
 EV = os.path.join(DATA, "logs", "events.log")
 MB = 1024 * 1024
 
 DEFAULT_CFG = {
+    "jackett_url": "http://127.0.0.1:9117",
+    "jackett_apikey": "",
+    "jackett_config": "",
     "indexers": ["thepiratebay", "knaben", "therarbg", "limetorrents", "torrentgalaxyclone", "uindex"],
     "native_sources": ["bt4g"],   # 不走 Jackett 的原生源: bt4g(RSS接口)
     "media_root": "/path/to/your/media/library",
@@ -180,13 +181,86 @@ def gy_nas_start(fid, fname, target_dir):
 def gy_transfers(): return gy_get("/api/transfers", timeout=30)
 
 # ---------------------------------------------------------------- Jackett
-def jt_key(): return json.load(open(JT_CFG))["APIKey"]
+def find_jackett_config():
+    """多路径自动发现 Jackett 的 ServerConfig.json 文件"""
+    env_cfg = os.environ.get("JACKETT_CONFIG")
+    if env_cfg and os.path.isfile(env_cfg):
+        return env_cfg
+
+    cfg_val = CFG.get("jackett_config", "")
+    if cfg_val and os.path.isfile(cfg_val):
+        return cfg_val
+
+    # 1. 扫描各存储卷 /vol*/@appdata/jackett/data/ServerConfig.json
+    import glob
+    for c in sorted(glob.glob("/vol*/@appdata/jackett/data/ServerConfig.json")):
+        if os.path.isfile(c):
+            return c
+
+    # 2. 扫描 /volume*/@appdata/jackett/data/ServerConfig.json
+    for c in sorted(glob.glob("/volume*/@appdata/jackett/data/ServerConfig.json")):
+        if os.path.isfile(c):
+            return c
+
+    # 3. 常见 Linux 路径
+    for p in [
+        "/var/lib/jackett/data/ServerConfig.json",
+        "/var/lib/jackett/ServerConfig.json",
+        os.path.expanduser("~/.config/Jackett/ServerConfig.json"),
+        "/root/.config/Jackett/ServerConfig.json",
+        "/home/jackett/.config/Jackett/ServerConfig.json",
+    ]:
+        if os.path.isfile(p):
+            return p
+
+    # 4. 从运行中进程动态查找
+    try:
+        out = subprocess.check_output(["ps", "-eo", "args"], text=True, stderr=subprocess.DEVNULL)
+        for line in out.splitlines():
+            if "jackett" in line.lower() and "--DataFolder" in line:
+                parts = line.split()
+                for i, arg in enumerate(parts):
+                    if arg == "--DataFolder" and i + 1 < len(parts):
+                        cfg = os.path.join(parts[i+1], "ServerConfig.json")
+                        if os.path.isfile(cfg):
+                            return cfg
+    except Exception:
+        pass
+
+    return None
+
+def jt_key():
+    """获取 Jackett APIKey：配置/环境变量优先，否则从 ServerConfig.json 自动读取"""
+    val = (CFG.get("jackett_apikey") or "").strip()
+    if val:
+        return val
+
+    env_key = os.environ.get("JACKETT_APIKEY", "").strip()
+    if env_key:
+        return env_key
+
+    cfg_file = find_jackett_config()
+    if cfg_file and os.path.isfile(cfg_file):
+        try:
+            with open(cfg_file, encoding="utf-8") as f:
+                k = json.load(f).get("APIKey")
+                if k:
+                    return k.strip()
+        except Exception as e:
+            log(f"读取 Jackett 配置文件 {cfg_file} 失败: {e}")
+
+    raise RuntimeError(
+        "未找到 Jackett APIKey。请确认 Jackett 已安装并启动，"
+        "或在控制台「设置」中填写 Jackett APIKey，"
+        "或设置环境变量 JACKETT_CONFIG 指向 ServerConfig.json"
+    )
 
 def jackett_search(query, category=None):
     """并行搜索5索引器 → 标准化结果列表"""
     key = jt_key()
+    jt_url = (CFG.get("jackett_url") or JT).rstrip("/")
     def one(idx):
-        url = (f"{JT}/api/v2.0/indexers/{idx}/results?apikey={key}"
+        url = (f"{jt_url}/api/v2.0/indexers/{idx}/results?apikey={key}"
                + (f"&Category={category}" if category else "")
                + "&Query=" + urllib.parse.quote(query))
         try:
