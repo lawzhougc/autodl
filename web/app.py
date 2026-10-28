@@ -28,6 +28,107 @@ WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = 8770
 WISH_F = os.path.join(DATA, "wishlist.json")   # {key: {name,kind,added,note}}
 
+# ----------------- 后台搜索任务管理 (避免浏览器关闭/断连导致搜索失效) -----------------
+_SEARCH_LOCK = threading.Lock()
+_SEARCH_TASK = {
+    "id": 0,
+    "q": "",
+    "status": "idle",  # idle | running | done | error
+    "start_time": 0,
+    "finish_time": 0,
+    "data": None,
+    "error": None
+}
+
+def _bg_search_worker(task_id, q_orig):
+    global _SEARCH_TASK
+    try:
+        q = q_orig
+        orig = q
+        trans, meta = g.cn2en(q)
+        if trans != q: q = trans
+        kind = "tv" if g.is_tv_query(q) else "movie"
+        cat = 5000 if kind == "tv" else 2000
+        results = g.jackett_search(q, category=cat)
+        pick = g.best_for_episode if kind == "tv" else g.best_for_movie
+        # 2160p 去重列表 + 推荐
+        q4k = []
+        for r in results:
+            p = g.parse_title(r["title"])
+            if p["quality"] == "2160p" and not p["bad"]:
+                r["_p"] = p; q4k.append(r)
+        q4k.sort(key=g.rank_key)
+        seen, uniq = set(), []
+        for r in q4k:
+            sig = re.sub(r"[^a-z0-9]", "", r["title"].lower())[:35]
+            if sig in seen: continue
+            seen.add(sig); uniq.append(r)
+        items = [{"title": r["title"], "seeders": r["seeders"], "size": r["size"],
+                  "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
+                  "magnet": bool(r["magnet"]),
+                  "langs": sorted(r["_p"].get("langs") or [])}
+                 for r in uniq[:20]]
+        best = pick(results, g.CFG["wanted_quality"]) if kind == "movie" else \
+            (pick(results, int(re.search(r"S(\d+)E(\d+)", q, re.I).group(1)),
+                  int(re.search(r"S(\d+)E(\d+)", q, re.I).group(2)),
+                  g.CFG["wanted_quality"]) if re.search(r"S(\d+)E(\d+)", q, re.I) else None)
+        lo = sorted([r for r in results if g.parse_title(r["title"])["quality"] == "1080p" and not g.parse_title(r["title"])["bad"]],
+                    key=lambda r: -r["seeders"])[:8]
+        lo_items = [{"title": r["title"], "seeders": r["seeders"],
+                     "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
+                     "langs": sorted(g.parse_title(r["title"]).get("langs") or [])} for r in lo]
+
+        payload = {
+            "kind": kind, "total": len(results), "q4k": items,
+            "best": best["title"] if best else None,
+            "lo1080": lo_items, "recognized": trans if trans != orig else None, "orig": orig,
+            "meta": meta
+        }
+        with _SEARCH_LOCK:
+            if _SEARCH_TASK["id"] == task_id:
+                _SEARCH_TASK["status"] = "done"
+                _SEARCH_TASK["finish_time"] = time.time()
+                _SEARCH_TASK["data"] = payload
+    except Exception as ex:
+        traceback.print_exc()
+        with _SEARCH_LOCK:
+            if _SEARCH_TASK["id"] == task_id:
+                _SEARCH_TASK["status"] = "error"
+                _SEARCH_TASK["finish_time"] = time.time()
+                _SEARCH_TASK["error"] = str(ex)
+
+def start_search_task(q):
+    global _SEARCH_TASK
+    q = q.strip()
+    with _SEARCH_LOCK:
+        # 如果当前相同的词正在搜索中或刚搜索完(<5分钟)，直接复用
+        now = time.time()
+        if _SEARCH_TASK["q"] == q and _SEARCH_TASK["status"] == "running":
+            return dict(_SEARCH_TASK)
+        if _SEARCH_TASK["q"] == q and _SEARCH_TASK["status"] == "done" and (now - _SEARCH_TASK["finish_time"] < 300):
+            return dict(_SEARCH_TASK)
+
+        new_id = _SEARCH_TASK["id"] + 1
+        _SEARCH_TASK = {
+            "id": new_id,
+            "q": q,
+            "status": "running",
+            "start_time": now,
+            "finish_time": 0,
+            "data": None,
+            "error": None
+        }
+    t = threading.Thread(target=_bg_search_worker, args=(new_id, q), daemon=True)
+    t.start()
+    return dict(_SEARCH_TASK)
+
+def get_search_task_status():
+    with _SEARCH_LOCK:
+        d = dict(_SEARCH_TASK)
+        if d.get("data"):
+            d["data"] = dict(d["data"])
+        return d
+
 def wishes():
     return g.load_json(WISH_F, {})
 
@@ -141,45 +242,13 @@ class H(BaseHTTPRequestHandler):
                 except Exception as ex:
                     return self._json(200, {"src": src, "lines": 0, "file": path,
                                             "tail": [], "error": str(ex)})
+            if self.path == "/api/search/status":
+                return self._json(200, get_search_task_status())
             if self.path.startswith("/api/search?"):
                 q = urllib.parse.unquote(self.path.split("q=", 1)[1])
-                orig = q
-                trans, meta = g.cn2en(q)
-                if trans != q: q = trans
-                kind = "tv" if g.is_tv_query(q) else "movie"
-                cat = 5000 if kind == "tv" else 2000
-                results = g.jackett_search(q, category=cat)
-                pick = g.best_for_episode if kind == "tv" else g.best_for_movie
-                # 2160p 去重列表 + 推荐
-                q4k = []
-                for r in results:
-                    p = g.parse_title(r["title"])
-                    if p["quality"] == "2160p" and not p["bad"]:
-                        r["_p"] = p; q4k.append(r)
-                q4k.sort(key=g.rank_key)
-                seen, uniq = set(), []
-                for r in q4k:
-                    sig = re.sub(r"[^a-z0-9]", "", r["title"].lower())[:35]
-                    if sig in seen: continue
-                    seen.add(sig); uniq.append(r)
-                items = [{"title": r["title"], "seeders": r["seeders"], "size": r["size"],
-                          "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
-                          "magnet": bool(r["magnet"]),
-                          "langs": sorted(r["_p"].get("langs") or [])}
-                         for r in uniq[:20]]
-                best = pick(results, g.CFG["wanted_quality"]) if kind == "movie" else \
-                    (pick(results, int(re.search(r"S(\d+)E(\d+)", q, re.I).group(1)),
-                          int(re.search(r"S(\d+)E(\d+)", q, re.I).group(2)),
-                          g.CFG["wanted_quality"]) if re.search(r"S(\d+)E(\d+)", q, re.I) else None)
-                lo = sorted([r for r in results if g.parse_title(r["title"])["quality"] == "1080p" and not g.parse_title(r["title"])["bad"]],
-                            key=lambda r: -r["seeders"])[:8]
-                lo_items = [{"title": r["title"], "seeders": r["seeders"],
-                             "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
-                             "langs": sorted(g.parse_title(r["title"]).get("langs") or [])} for r in lo]
-                return self._json(200, {"kind": kind, "total": len(results), "q4k": items,
-                                        "best": best["title"] if best else None,
-                                        "lo1080": lo_items, "recognized": trans if trans != orig else None, "orig": orig,
-                                        "meta": meta})
+                t = start_search_task(q)
+                # 兼容旧逻辑：如果直接完成(缓存)，直接给 data；否则返回当前状态
+                return self._json(200, t)
             return self._json(404, {"error": "not found"})
         except Exception as e:
             traceback.print_exc()
@@ -212,10 +281,10 @@ class H(BaseHTTPRequestHandler):
                 async_run(["add", name] + (["--allow1080"] if body.get("allow1080") else []), f"add {name}")
                 return self._json(200, {"ok": True, "msg": "已后台提交, 1-2分钟后在任务里查看"})
             elif self.path == "/api/search":
-                q = body.get("q") or ""
+                q = (body.get("q") or "").strip()
                 if not q: return self._json(400, {"error": "empty"})
-                # 搜索同步返回(前端有 loading)
-                self._json(200, {"ok": True})  # 先占位, 真正搜索走 GET /api/search
+                t = start_search_task(q)
+                return self._json(200, t)
             elif self.path == "/api/config":      # 保存下载节奏设置(用已读的 body)
                 updates = {}
                 for k, v in body.items():

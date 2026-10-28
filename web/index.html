@@ -379,26 +379,69 @@ async function addShow(){
   catch(e){flash(e,false)}
 }
 function rmShow(name){if(confirm('移除追剧: '+name+'?'))jpost('/api/rmshow',{name}).then(refresh)}
+let _searchTimer = null;
+function renderSearchResults(q, d){
+  const box=$('#searchRes');
+  box.style.display='block';
+  let h=`<div class="row mb" style="justify-content:space-between">
+    <span class="dim"><b>「${esc(q)}」</b> · 共${d.total}条 · ${d.kind==='tv'?'剧集':'电影'} · 4K ${d.q4k.length}条</span>
+    <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 关闭结果</button>
+  </div>`;
+  if(d.recognized)h+=`<div class="dim mb">🀄 识别: ${esc(d.orig)} → <b>${esc(d.recognized)}</b></div>`;
+  if(d.best)h+=`<div class="item"><div class="t">★ 推荐: <b>${esc(d.best)}</b></div><button class="mini" onclick="download('${esc(q)}')">⬇ 下载推荐</button></div>`;
+  if(!d.q4k.length&&d.lo1080.length)h+='<div class="dim mt">无4K资源, 1080p候选:</div>';
+  d.q4k.forEach(r=>{
+    h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${r.langs&&r.langs.length?' · '+r.langs.join(',').toUpperCase():''}</span></div>
+    <button class="mini" onclick="download('${esc(q)}')">⬇ 推荐</button></div>`;
+  });
+  d.lo1080.forEach(r=>{
+    h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">1080p · ${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}</span></div>
+    <button class="mini ghost" onclick="download1080('${esc(q)}')">⬇ 1080p</button></div>`;
+  });
+  if(!d.q4k.length&&!d.lo1080.length)h+='<div class="dim">无可用资源</div>';
+  box.innerHTML=h;
+}
+
+async function checkSearchStatus(){
+  try{
+    const st = await jget('/api/search/status');
+    const box = $('#searchRes');
+    if(!st || st.status === 'idle') return;
+    if(st.status === 'running'){
+      box.style.display = 'block';
+      const sec = Math.round((Date.now() - (st.start_time * 1000)) / 1000);
+      box.innerHTML = `<div class="row" style="justify-content:space-between">
+        <span class="dim">⏳ 正在后台搜索: <b>「${esc(st.q)}」</b> (已耗时 ${sec} 秒，窗口关闭不影响)…</span>
+        <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 隐藏</button>
+      </div>`;
+      if(!_searchTimer) _searchTimer = setInterval(checkSearchStatus, 2000);
+    } else if(st.status === 'done' && st.data){
+      if(_searchTimer){ clearInterval(_searchTimer); _searchTimer = null; }
+      renderSearchResults(st.q, st.data);
+    } else if(st.status === 'error'){
+      if(_searchTimer){ clearInterval(_searchTimer); _searchTimer = null; }
+      box.style.display = 'block';
+      box.innerHTML = `<div class="row" style="justify-content:space-between">
+        <span class="dim">搜索「${esc(st.q)}」失败: ${esc(st.error)}</span>
+        <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 关闭</button>
+      </div>`;
+    }
+  }catch(e){}
+}
+
 async function doSearch(){
   const q=$('#wishName').value.trim(); if(!q)return flash('先填搜索词',false);
-  const box=$('#searchRes');box.style.display='block';box.innerHTML='<div class="dim">搜索中(约30-60秒)…</div>';
+  const box=$('#searchRes');box.style.display='block';
+  box.innerHTML=`<div class="row" style="justify-content:space-between">
+    <span class="dim">⏳ 正在后台搜索: <b>「${esc(q)}」</b> (约30-60秒，窗口关闭不影响)…</span>
+    <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 隐藏</button>
+  </div>`;
   try{
-    const d=await jget('/api/search?q='+encodeURIComponent(q));
-    let h=`<div class="dim">共${d.total}条 · ${d.kind==='tv'?'剧集':'电影'} · 4K ${d.q4k.length}条</div>`;
-    if(d.recognized)h+=`<div class="dim">🀄 识别: ${esc(d.orig)} → <b>${esc(d.recognized)}</b></div>`;
-    if(d.best)h+=`<div class="item"><div class="t">★ 推荐: <b>${d.best}</b></div><button class="mini" onclick="download('${esc(q)}')">⬇ 下载推荐</button></div>`;
-    if(!d.q4k.length&&d.lo1080.length)h+='<div class="dim mt">无4K资源, 1080p候选:</div>';
-    d.q4k.forEach(r=>{
-      h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${r.langs&&r.langs.length?' · '+r.langs.join(',').toUpperCase():''}</span></div>
-      <button class="mini" onclick="download('${esc(q)}')">⬇ 推荐</button></div>`;
-    });
-    d.lo1080.forEach(r=>{
-      h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">1080p · ${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}</span></div>
-      <button class="mini ghost" onclick="download1080('${esc(q)}')">⬇ 1080p</button></div>`;
-    });
-    if(!d.q4k.length&&!d.lo1080.length)h+='<div class="dim">无可用资源</div>';
-    box.innerHTML=h;
-  }catch(e){box.innerHTML='<div class="dim">搜索失败: '+esc(e)+'</div>'}
+    await jpost('/api/search', {q});
+    if(_searchTimer) clearInterval(_searchTimer);
+    _searchTimer = setInterval(checkSearchStatus, 2000);
+    checkSearchStatus();
+  }catch(e){box.innerHTML='<div class="dim">提交搜索失败: '+esc(e)+'</div>'}
 }
 function esc(s){return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;')}
 function download(q){jpost('/api/add',{name:q}).then(()=>flash('已后台提交下载: '+q)).catch(e=>flash(e,false))}
@@ -501,6 +544,7 @@ const _refresh=refresh;
 refresh=async function(){await _refresh();
   if($('#logSrc').value==='events'&&document.querySelector('#page-log.on')) await refreshLog();}
 refresh();setInterval(refresh,15000);
+checkSearchStatus();
 </script>
 </body>
 </html>
