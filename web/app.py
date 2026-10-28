@@ -344,6 +344,18 @@ if __name__ == "__main__":
     finally:
         s.close()
     os.makedirs(os.path.join(DATA, "logs"), exist_ok=True)
+
+    # 启动后台推进轮询线程: 每 30 秒自动执行一次 gy_autodl poll (推进 cloud -> nas -> 字幕/完成)
+    def _bg_poll_worker():
+        while True:
+            try:
+                time.sleep(30)
+                run_script(["poll"], timeout=120)
+            except Exception:
+                pass
+    t_poll = threading.Thread(target=_bg_poll_worker, daemon=True)
+    t_poll.start()
+
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     print(f"gy_autodl web on :{PORT}", flush=True)
     srv.serve_forever()

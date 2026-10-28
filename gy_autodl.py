@@ -174,10 +174,14 @@ def gy_add_magnet(url, parent_id, file_indexes=None, new_name=None):
 def gy_cloud_tasks(pages=2):
     out = []
     for p in range(pages):
-        d = gy_get(f"/api/cloud-add/tasks?page={p}&pageSize=100", timeout=60)
-        lst = d.get("list") or (d.get("data") or {}).get("list") or []
-        out += lst
-        if len(lst) < 100: break
+        try:
+            d = gy_get(f"/api/cloud-add/tasks?page={p}&pageSize=100", timeout=60)
+            lst = d.get("list") or (d.get("data") or {}).get("list") or []
+            out += lst
+            if len(lst) < 100: break
+        except Exception as e:
+            log(f"获取云任务列表第 {p} 页异常: {e}")
+            break
     return out
 
 def gy_download_url(fid): return gy_get(f"/api/download-url?fileId={fid}", timeout=30).get("signedURL")
