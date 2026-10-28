@@ -105,6 +105,13 @@ SHOWS_F = os.path.join(DATA, "shows.json")
 STATE_F = os.path.join(DATA, "state.json")
 
 # ---------------------------------------------------------------- HTTP
+class MagnetRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """当上游 301/302 重定向到 magnet: 协议时阻止抛出异常，以便捕获磁链"""
+    def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+        if newurl and newurl.startswith("magnet:"):
+            return None
+        return super().redirect_request(req, fp, code, msg, hdrs, newurl)
+
 def http(url, data=None, headers=None, timeout=30, method=None):
     req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -324,14 +331,23 @@ def bt4g_search(query):
 
 def to_magnet(res):
     """结果 → (magnet, files_hint) ; 仅有种子的先下载字节再resolve"""
-    if res["magnet"]:
+    if res.get("magnet"):
         return res["magnet"], None
-    if res["link"]:
-        raw = http(res["link"], timeout=40)
-        d = gy_resolve_torrent(raw)
-        ih = d.get("infohash") or res["infohash"]
-        if not ih: return None, None
-        return f"magnet:?xt=urn:btih:{ih.upper()}", None
+    if res.get("link"):
+        opener = urllib.request.build_opener(MagnetRedirectHandler)
+        try:
+            req = urllib.request.Request(res["link"], headers={"User-Agent": "Mozilla/5.0"})
+            with opener.open(req, timeout=40) as resp:
+                raw = resp.read()
+                d = gy_resolve_torrent(raw)
+                ih = d.get("infohash") or res.get("infohash")
+                if not ih: return None, None
+                return f"magnet:?xt=urn:btih:{ih.upper()}", None
+        except urllib.error.HTTPError as e:
+            loc = e.headers.get("Location") or ""
+            if e.code in (301, 302, 303, 307, 308) and loc.startswith("magnet:"):
+                return loc, None
+            raise
     return None, None
 
 # ---------------------------------------------------------------- 解析
@@ -777,6 +793,18 @@ def submit(res, label, parent_path, wanted_eps=None, min_mb=None):
     if not magnet: raise RuntimeError("无法获得磁链")
     resolved = gy_resolve(magnet)
     files = resolved.get("files") or []
+
+    # 单文件磁力兜底: 光鸭 resolve 后 files 可能为空，但 title/totalSize 明确代表单文件
+    if not files and resolved.get("totalSize", 0) >= (min_mb or CFG["min_video_mb"]) * MB:
+        single_title = resolved.get("title") or label
+        if is_video(single_title) or (not os.path.splitext(single_title)[1] and is_video(res.get("title") or "")):
+            files = [{
+                "fileIndex": 0,
+                "fileName": single_title,
+                "fileSize": resolved.get("totalSize", 0),
+                "selected": True
+            }]
+
     vids = [f for f in files if is_video(f.get("fileName") or "")
             and (f.get("fileSize") or 0) >= (min_mb or CFG["min_video_mb"]) * MB
             and "sample" not in (f.get("fileName") or "").lower()]
