@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 gy_autodl — fnOS 自动追剧/电影下载工作流
-链路: Jackett(:9117) 搜索 → 光鸭网盘(:8998) 云下载 → 下载到 NAS → 字幕
+链路: Jackett(:9117) 搜索 → 光鸭网盘(:8998) 云下载 → 下载到 NAS(/vol3/1000/媒体库2) → 字幕
 用法:
   search <关键词>              搜索资源(展示,不下载)
   add <标题> [--allow1080]     一次性下载(剧集单集或电影), 无4K时退出码2并列出候选
@@ -36,7 +36,7 @@ DEFAULT_CFG = {
     "jackett_config": "",
     "indexers": ["thepiratebay", "knaben", "therarbg", "limetorrents", "torrentgalaxyclone", "uindex"],
     "native_sources": ["bt4g"],   # 不走 Jackett 的原生源: bt4g(RSS接口)
-    "media_root": "/path/to/your/media/library",
+    "media_root": "/vol3/1000/媒体库2",
     "cloud_root": "自动下载",
     "min_video_mb": 300,
     "max_submit_per_run": 3,
@@ -827,7 +827,8 @@ def submit(res, label, parent_path, wanted_eps=None, min_mb=None):
         if picked: vids = picked
     if not vids:
         raise RuntimeError(f"资源中无可选视频文件(>={CFG['min_video_mb']}MB): {[f.get('fileName') for f in files][:5]}")
-    idxs = [f["fileIndex"] for f in vids]
+    # 注意: 若原始 resolve 结果中 files 为空 (单文件磁力)，光鸭 API 不接受 fileIndexes 参数 (传 [0] 会报错误码 112: 参数错误)
+    idxs = [f["fileIndex"] for f in vids] if (resolved.get("files") and len(resolved["files"]) > 0) else None
     parent_id = gy_ensure_path(parent_path)
     tid = gy_add_magnet(magnet, parent_id, idxs, sanitize(label))
     return tid, magnet, vids
@@ -849,34 +850,54 @@ def phase_cloud(st):
                 t["stage"] = "failed"; t["error"] = "云任务列表中未找到(24h)"
                 event(f"失败 {t['label']}: 云任务丢失")
             continue
-        # 完成判定: progress 可能是 None(新版API不下发) → 以目录内是否已有实际文件为准
+        # 异常状态判定: status=3 代表云端出错(如 errCode 112: 参数错误, 或离线下载失败)
+        if ct.get("status") == 3:
+            err_msg = ct.get("errMsg") or f"错误码 {ct.get('errCode')}"
+            t["stage"] = "failed"; t["error"] = f"云端任务失败: {err_msg}"
+            event(f"失败 {t['label']}: 云端任务失败({err_msg})")
+            continue
+        # 完成判定: progress 可能是 None(新版API不下发) → 以目录内或文件自身是否可下载为准
         prog = ct.get("progress")
         done = (int(prog) >= 100) if prog is not None else False
-        if not done and ct.get("fileId"):
+        fid = ct.get("fileId")
+        if not done and fid:
             try:
-                done = bool(walk_videos(ct["fileId"]))
+                # 若任务本身为单文件直落，或者目录下已有完成的视频文件
+                vids = walk_videos(fid, default_name=ct.get("fileName") or t.get("label"), default_size=ct.get("totalSize") or 0)
+                done = bool(vids)
             except Exception:
                 done = False
-        if done and ct.get("fileId"):
-            t["cloudFileId"] = ct["fileId"]
-            start_nas_for_task(st, k, t)
+        if done and fid:
+            t["cloudFileId"] = fid
+            start_nas_for_task(st, k, t, fallback_name=ct.get("fileName") or t.get("label"), fallback_size=ct.get("totalSize") or 0)
         elif time.time() - t.get("added", 0) > CFG["cloud_stale_hours"] * 3600:
             t["stage"] = "failed"; t["error"] = f"云任务超时 progress={prog}"
             event(f"失败 {t['label']}: 云任务超时")
 
-def walk_videos(fid, depth=0):
-    """递归云盘目录, 返回 [(fileId, fileName, size)]"""
+def walk_videos(fid, depth=0, default_name=None, default_size=0):
+    """递归云盘目录, 返回 [(fileId, fileName, size)]。若 fid 本身即为单文件直链，直接返回单文件元组。"""
     if depth > 4: return []
     out = []
-    for e in gy_list(fid):
+    entries = gy_list(fid)
+    if not entries:
+        # 如果列不出子项，探测该 fid 是否自身就是可下载的文件直链
+        try:
+            if gy_download_url(fid):
+                name = default_name or f"file_{fid}.mkv"
+                return [(fid, name, default_size)]
+        except Exception:
+            pass
+        return []
+
+    for e in entries:
         if is_file_entry(e):
             if is_video(e.get("fileName") or ""): out.append((e["fileId"], e["fileName"], e.get("fileSize") or 0))
         else:
             out += walk_videos(e["fileId"], depth + 1)
     return out
 
-def start_nas_for_task(st, k, t):
-    vids = walk_videos(t["cloudFileId"])
+def start_nas_for_task(st, k, t, fallback_name=None, fallback_size=0):
+    vids = walk_videos(t["cloudFileId"], default_name=fallback_name, default_size=fallback_size)
     if not vids:
         t["stage"] = "failed"; t["error"] = "云目录中无视频文件"
         event(f"失败 {t['label']}: 云目录无视频"); return
