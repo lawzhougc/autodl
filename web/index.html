@@ -60,7 +60,7 @@ td{padding:8px;border-bottom:1px solid var(--rowline);vertical-align:top}
 .mb{margin-bottom:10px}
 .pill{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:2px 10px;margin-right:6px}
 a{color:var(--acc);text-decoration:none}
-.events{font-size:12px;color:var(--dim);max-height:calc(100vh - 260px);overflow:auto;white-space:pre-wrap}
+.events{font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;color:var(--dim);height:calc(100vh - 230px);min-height:420px;overflow:auto;white-space:pre-wrap;background:var(--inp);border:1px solid var(--line);border-radius:8px;padding:12px 14px;line-height:1.6}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:760px){
   body{flex-direction:column}
@@ -484,17 +484,15 @@ async function refresh(){
       ? wkeys.map(n=>{const eps=Object.entries(waiting[n]||{}).map(([e,r])=>`${e} <span class="dim">(${esc(r)})</span>`).join(', ');
                       return `<div class="item"><div class="t"><b>${esc(n)}</b> — ${eps}</div></div>`}).join('')
       : '暂无';
-
-    // 日志（独立于 15s 轮询，切源/刷行数时立即重取）
-    $('#events').textContent=(events||[]).map(l=>l.trim()).join('\n')||'无';
   }catch(e){flash('刷新失败: '+e,false)}
 }
 async function refreshLog(){
-  const box=$('#events'); box.textContent='加载中…';
+  const box=$('#events');
+  if(!box.textContent || box.textContent==='加载中…') box.textContent='加载中…';
   try{
     const src=$('#logSrc').value, lines=$('#logLines').value;
     const d=await jget(`/api/logs?src=${src}&lines=${lines}`);
-    box.textContent=d.tail.join('\n')||'（暂无日志）';
+    box.textContent=(d.tail||[]).join('\n')||'（暂无日志）';
     $('#logMeta').textContent=`${d.file} · ${d.lines} 行`;
   }catch(e){box.textContent='加载失败: '+e}
 }
