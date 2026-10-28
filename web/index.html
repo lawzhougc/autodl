@@ -114,7 +114,7 @@ a{color:var(--acc);text-decoration:none}
     <button class="mini ghost" onclick="api('/api/run','已触发全量 run')">▶ 手动 run</button>
     <button class="mini ghost" onclick="api('/api/poll','已触发 poll')">⟳ 推进任务</button>
   </h2>
-  <table><thead><tr><th>任务</th><th>阶段</th><th>详情</th></tr></thead><tbody id="taskList"></tbody></table>
+  <table><thead><tr><th>任务</th><th>阶段</th><th>进度 / 详情</th><th style="width:50px;text-align:right">操作</th></tr></thead><tbody id="taskList"></tbody></table>
   <div class="dim" id="taskEmpty" style="display:none">暂无进行中任务</div>
 </div>
 
@@ -152,6 +152,23 @@ a{color:var(--acc);text-decoration:none}
 <!-- ============ 设置 ============ -->
 <div class="page" id="page-cfg">
 <div class="card">
+  <h2>📁 存储与下载目录</h2>
+  <div class="dim mb">设置光鸭云盘网盘内的转存归档根目录，以及最终下载回 NAS 的本地媒体库根目录。</div>
+  <table>
+    <tbody>
+      <tr><td style="width:180px">NAS 媒体库路径</td>
+          <td><input id="cfgMediaRoot" type="text" style="width:320px" placeholder="/vol3/1000/媒体库2">
+          <span class="dim">— 本地存储绝对路径（剧集和电影将自动存放于此目录下）</span></td></tr>
+      <tr><td>云盘根目录</td>
+          <td><input id="cfgCloudRoot" type="text" style="width:200px" placeholder="自动下载">
+          <span class="dim">— 光鸭网盘中的顶层存放文件夹名称</span></td></tr>
+    </tbody>
+  </table>
+  <div class="mt"><button class="mini" onclick="saveDir()">💾 保存路径设置</button></div>
+  <div class="dim mt" id="dirSaved"></div>
+</div>
+
+<div class="card mt">
   <h2>⚙️ 下载节奏设置</h2>
   <div class="dim mb">控制已上线剧集的补集节奏。未上线的新集只要搜到 2160p 就自动下载（除非关闭下方开关）。</div>
   <table>
@@ -259,12 +276,15 @@ a{color:var(--acc);text-decoration:none}
 <div class="page" id="page-log">
 <div class="card">
   <h2>📜 运行日志</h2>
+  <div class="dim mb" id="logHelp" style="line-height:1.5">
+    💡 <b>关键动作日志 (events.log)</b>：专门记录高价值的业务里程碑，如「云任务添加成功」、「开始 NAS 下载并指定存储路径」、「中文字幕下载与转码匹配」、「任务全部完成」等核心事件。
+  </div>
   <div class="mb" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <select id="logSrc" onchange="refreshLog()">
-      <option value="events">事件（下载/字幕/追剧动作）</option>
-      <option value="run">运行（每轮完整过程）</option>
-      <option value="cron">定时任务</option>
-      <option value="web">网页触发的下载</option>
+    <select id="logSrc" onchange="onLogSrcChange()">
+      <option value="events">📌 关键动作日志 (events.log) — 落地完成/字幕匹配/核心动作</option>
+      <option value="run">🔍 调度与搜索日志 (run.log) — 后台轮询/资源匹配细节/异常调试</option>
+      <option value="cron">⏰ 定时唤醒日志 (cron.log) — 系统每小时定时执行的输出</option>
+      <option value="web">🌐 网页操作日志 (webjobs.log) — 页面提交的搜索与下载执行输出</option>
     </select>
     <select id="logLines" onchange="refreshLog()">
       <option value="100">最近 100 行</option>
@@ -320,6 +340,21 @@ function toggleTheme(){
 applyTheme((()=>{try{return localStorage.getItem('autodl_theme')}catch(e){return null}})()||'dark');
 document.querySelectorAll('#side nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
 showPage((()=>{try{return localStorage.getItem('autodl_page')}catch(e){return null}})()||'home',true);
+
+async function saveDir(){
+  const mr = $('#cfgMediaRoot').value.trim();
+  const cr = $('#cfgCloudRoot').value.trim();
+  if(!mr) return flash('NAS 媒体库路径不能为空', false);
+  if(!cr) return flash('云盘根目录不能为空', false);
+  try{
+    await jpost('/api/config', {media_root: mr, cloud_root: cr});
+    $('#dirSaved').textContent = '已保存 ' + new Date().toLocaleTimeString();
+    flash('存储目录已保存');
+    delete $('#cfgMediaRoot').dataset.init;
+    delete $('#cfgCloudRoot').dataset.init;
+    refresh();
+  }catch(e){flash(e, false)}
+}
 
 async function saveCfg(){
   const body={batch_size:+$('#cfgBatch').value, batch_interval_hours:+$('#cfgGap').value,
@@ -449,6 +484,7 @@ function download1080(q){jpost('/api/add',{name:q,allow1080:true}).then(()=>flas
 async function wishToTV(name){showPage('lib');$('#showName').value=name;addShow()}
 async function wishToDL(name){jpost('/api/add',{name}).then(()=>flash('已提交下载: '+name)).catch(e=>flash(e,false))}
 function delWish(key){jpost('/api/wish/delete',{key}).then(refresh)}
+function delTask(key){if(confirm('确定要删除该任务记录吗？'))jpost('/api/task/delete',{key}).then(()=>{flash('已删除任务');refresh()}).catch(e=>flash(e,false))}
 
 async function refresh(){
   try{
@@ -483,9 +519,32 @@ async function refresh(){
     $('#taskEmpty').style.display=tasks.length?'none':'block';
     $('#taskList').innerHTML=act.concat(recent).map(t=>{
       let detail=t.error?`<span style="color:var(--bad)">${esc(t.error)}</span>`:'';
-      if(t.nas)t.nas.forEach(n=>{detail+=`<div>${esc(n.file)}<div class="bar"><i style="width:${n.percent||0}%"></i></div></div>`});
-      return `<tr><td>${esc(t.label||t.kind)}</td><td><span class="tag ${t.stage}">${t.stage}</span></td><td>${detail||'<span class=dim>-</span>'}</td></tr>`;
+      if(t.nas && t.nas.length){
+        t.nas.forEach(n=>{
+          const p = Math.round(n.percent || 0);
+          detail+=`<div style="display:flex;align-items:center;gap:8px">
+            <div class="bar" style="flex:1"><i style="width:${p}%"></i></div>
+            <span class="dim" style="font-size:12px;min-width:38px;text-align:right">${p}%</span>
+          </div>`;
+        });
+      } else if(t.stage==='cloud'){
+        detail='<span class="dim">网盘云下载中…</span>';
+      } else if(t.stage==='done'){
+        detail='<span class="dim" style="color:var(--flash-ok-tx)">✓ 已完成入库</span>';
+      }
+      return `<tr>
+        <td><b>${esc(t.label||t.kind)}</b></td>
+        <td><span class="tag ${t.stage}">${t.stage}</span></td>
+        <td>${detail||'<span class=dim>-</span>'}</td>
+        <td style="text-align:right"><button class="mini ghost" title="删除任务" onclick="delTask('${esc(t.key)}')">✕</button></td>
+      </tr>`;
     }).join('');
+    // 目录路径设置回填
+    if(!$('#cfgMediaRoot').dataset.init){
+      $('#cfgMediaRoot').value = cfg.media_root || '/vol3/1000/媒体库2';
+      $('#cfgCloudRoot').value = cfg.cloud_root || '自动下载';
+      ['#cfgMediaRoot','#cfgCloudRoot'].forEach(k=>$(k).dataset.init='1');
+    }
     // 下载节奏设置(仅在未编辑时回填, 避免覆盖用户正在改的值)
     if(!$('#cfgBatch').dataset.init){
       $('#cfgBatch').value=cfg.batch_size; $('#cfgGap').value=cfg.batch_interval_hours;
@@ -529,11 +588,25 @@ async function refresh(){
       : '暂无';
   }catch(e){flash('刷新失败: '+e,false)}
 }
+const LOG_TIPS = {
+  events: '💡 <b>关键动作日志 (events.log)</b>：专门记录高价值的业务里程碑，如「云任务添加成功」、「开始 NAS 下载并指定存储路径」、「中文字幕下载与转码匹配」、「任务全部完成」等核心事件。',
+  run: '💡 <b>调度与搜索日志 (run.log)</b>：系统后台核心进程的完整调试跟踪，包含后台 30 秒轮询推进明细、多索引器搜索命中与打分、以及网络/接口排错信息。',
+  cron: '💡 <b>定时唤醒日志 (cron.log)</b>：记录系统通过 Linux crontab 每小时定时唤醒 gy_autodl run 的标准输出与耗时记录。',
+  web: '💡 <b>网页操作日志 (webjobs.log)</b>：记录通过 Web 控制台点击「立即下载」或后台异步搜索时所触发的独立子进程输出。'
+};
+
+function onLogSrcChange(){
+  const src = $('#logSrc').value;
+  $('#logHelp').innerHTML = LOG_TIPS[src] || '';
+  refreshLog();
+}
+
 async function refreshLog(){
   const box=$('#events');
   if(!box.textContent || box.textContent==='加载中…') box.textContent='加载中…';
   try{
     const src=$('#logSrc').value, lines=$('#logLines').value;
+    $('#logHelp').innerHTML = LOG_TIPS[src] || '';
     const d=await jget(`/api/logs?src=${src}&lines=${lines}`);
     box.textContent=(d.tail||[]).join('\n')||'（暂无日志）';
     $('#logMeta').textContent=`${d.file} · ${d.lines} 行`;

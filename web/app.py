@@ -17,6 +17,8 @@ import gy_autodl as g  # noqa: E402
 CONFIG_KEYS = ["batch_size", "batch_interval_hours", "backfill_enabled",
                "auto_download_new", "max_submit_per_run", "wanted_quality",
                "search_interval_hours",
+               # 路径设置
+               "media_root", "cloud_root",
                # 资源筛选偏好
                "quality_fallback", "prefer_format", "allow_format",
                "size_min_gb", "size_max_gb", "prefer_codec", "prefer_source", "hdr_prefer",
@@ -306,9 +308,19 @@ class H(BaseHTTPRequestHandler):
                             v = [str(x).strip().lower() for x in (v or []) if str(x).strip()]
                         if k == "quality_fallback":
                             v = [x for x in v if x in ("2160p", "1080p", "other")]
+                    elif k in ("media_root", "cloud_root"):
+                        v = str(v).strip()
+                        if k == "media_root" and v and not v.startswith("/"):
+                            v = "/" + v
+                        if not v: continue
                     updates[k] = v
                 g.save_cfg(updates)
                 return self._json(200, {"ok": True, "cfg": {k: g.CFG.get(k) for k in CONFIG_KEYS}})
+            elif self.path == "/api/task/delete":
+                key = (body.get("key") or "").strip()
+                if not key: return self._json(400, {"error": "缺少 key"})
+                ok, msg = g.delete_task(key)
+                return self._json(200 if ok else 400, {"ok": ok, "msg": msg})
             elif self.path == "/api/rmshow":
                 rc, out = run_script(["rmshow", body["name"]])
                 return self._json(200, {"rc": rc, "out": out.strip()})

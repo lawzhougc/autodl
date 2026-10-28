@@ -189,6 +189,22 @@ def gy_download_url(fid): return gy_get(f"/api/download-url?fileId={fid}", timeo
 def gy_nas_start(fid, fname, target_dir):
     return gy_post("/api/download-task", {"fileId": fid, "fileName": fname, "targetDir": target_dir}, timeout=60)["taskId"]
 
+def gy_cloud_task_delete(task_id, delete_file=False):
+    """从光鸭云任务列表中删除离线任务"""
+    try:
+        return gy_post("/api/cloud-add/delete", {"taskId": str(task_id), "deleteFile": bool(delete_file)}, timeout=15)
+    except Exception as e:
+        log(f"删除光鸭云任务 {task_id} 异常: {e}")
+        return None
+
+def gy_transfer_delete(task_id, delete_file=False):
+    """从光鸭 NAS 下载传输列表中删除记录"""
+    try:
+        return gy_post("/api/transfers/delete", {"taskId": str(task_id), "deleteFile": bool(delete_file)}, timeout=15)
+    except Exception as e:
+        log(f"删除光鸭传输任务 {task_id} 异常: {e}")
+        return None
+
 def gy_transfers(): return gy_get("/api/transfers", timeout=30)
 
 # ---------------------------------------------------------------- Jackett
@@ -1275,6 +1291,25 @@ def cmd_run(args):
 def cmd_sub(args):
     r = find_subtitle(args.file, os.path.splitext(os.path.basename(args.file))[0][:40])
     print(r)
+
+def delete_task(task_key):
+    """从 state.json 中删除任务，并尽可能取消/删除光鸭云任务与传输任务"""
+    st = state()
+    if task_key not in st.get("tasks", {}):
+        return False, "任务不存在"
+    t = st["tasks"].pop(task_key)
+    # 尝试删除光鸭端对应的离线任务
+    cid = t.get("cloudTaskId")
+    if cid:
+        gy_cloud_task_delete(cid)
+    # 尝试删除光鸭端的下载传输
+    for n in t.get("nas", []):
+        nid = n.get("nasTaskId")
+        if nid:
+            gy_transfer_delete(nid)
+    save_state(st)
+    log(f"已手动删除任务: {task_key} ({t.get('label')})")
+    return True, f"已删除任务 {t.get('label')}"
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
