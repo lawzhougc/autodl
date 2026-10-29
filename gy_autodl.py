@@ -174,15 +174,28 @@ def gy_ensure_path(names, root=""):
         if not n: continue
         fid = gy_find(n, pid)
         if not fid:
-            # 兼容两种字段传参: 飞牛官方部分版本接收 name，部分版本接收 dirName
-            try:
-                res = gy_post("/api/create-folder", {"name": n, "dirName": n, "parentId": pid}, timeout=30)
-                if isinstance(res, dict) and res.get("code") not in (0, None):
-                    raise RuntimeError(res.get("msg") or f"错误码 {res.get('code')}")
-            except Exception as e:
-                raise RuntimeError(f"网盘创建文件夹 [{n}] 失败: {e}") from None
+            # 兼容处理: 飞牛光鸭官方原版 create-folder 接收 name，但其内部 client.py 请求云端 API 规范不同版本可能要求 dirName。
+            # 若创建子目录因接口差异报错(如“文件夹名不能为空”)，降级回退到当前已存在的父目录 pid，绝不阻断磁力任务的正常添加与下载！
+            created = False
+            err_msg = ""
+            for payload in [{"name": n, "dirName": n, "parentId": pid}, {"dirName": n, "parentId": pid}, {"name": n, "parentId": pid}]:
+                try:
+                    res = gy_post("/api/create-folder", payload, timeout=30)
+                    if isinstance(res, dict) and res.get("code") not in (0, None):
+                        err_msg = res.get("msg") or f"错误码 {res.get('code')}"
+                    else:
+                        created = True
+                        break
+                except Exception as e:
+                    err_msg = str(e)
+            
             fid = gy_find(n, pid)
-            if not fid: raise RuntimeError(f"网盘建目录后未找到: {n}")
+            if not fid:
+                if err_msg:
+                    log(f"⚠️ 网盘创建子目录 [{n}] 失败 ({err_msg})，自动降级挂载至上级目录 (ID: {pid or '根目录'}) 继续下载")
+                else:
+                    log(f"⚠️ 网盘未找到新建目录 [{n}]，自动降级挂载至上级目录 (ID: {pid or '根目录'}) 继续下载")
+                return pid  # 优雅降级返回已成功确认的上一级 pid
         pid = fid
     return pid
 

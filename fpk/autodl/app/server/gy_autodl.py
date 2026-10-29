@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 gy_autodl — fnOS 自动追剧/电影下载工作流
-链路: Jackett(:9117) 搜索 → 光鸭网盘(:8998) 云下载 → 下载到 NAS → 字幕
+链路: Jackett(:9117) 搜索 → 光鸭网盘(:8998) 云下载 → 下载到 NAS(/vol3/1000/媒体库2) → 字幕
 用法:
   search <关键词>              搜索资源(展示,不下载)
   add <标题> [--allow1080]     一次性下载(剧集单集或电影), 无4K时退出码2并列出候选
@@ -20,18 +20,23 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 BASE = os.path.dirname(os.path.abspath(__file__))
+# fpk 安装时: 代码在 ${TRIM_APPDEST}/server, 用户数据在 ${TRIM_PKGVAR}
+# 脚本模式时: 配置与状态就在脚本同目录
+_VAR = os.environ.get("TRIM_PKGVAR", "")
+DATA = _VAR if (_VAR and os.path.isdir(_VAR)) else BASE
 GY = "http://127.0.0.1:8998"
 JT = "http://127.0.0.1:9117"
-JT_CFG = os.environ.get("JACKETT_CONFIG",
-                        "/volume1/@appdata/jackett/data/ServerConfig.json")
-LOG = os.path.join(BASE, "logs", "run.log")
-EV = os.path.join(BASE, "logs", "events.log")
+LOG = os.path.join(DATA, "logs", "run.log")
+EV = os.path.join(DATA, "logs", "events.log")
 MB = 1024 * 1024
 
 DEFAULT_CFG = {
+    "jackett_url": "http://127.0.0.1:9117",
+    "jackett_apikey": "",
+    "jackett_config": "",
     "indexers": ["thepiratebay", "knaben", "therarbg", "limetorrents", "torrentgalaxyclone", "uindex"],
     "native_sources": ["bt4g"],   # 不走 Jackett 的原生源: bt4g(RSS接口)
-    "media_root": "/path/to/your/media/library",
+    "media_root": "/vol3/1000/媒体库2",
     "cloud_root": "自动下载",
     "min_video_mb": 300,
     "max_submit_per_run": 3,
@@ -85,7 +90,7 @@ def save_json(path, data):
     with open(tmp, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=1)
     os.replace(tmp, path)
 
-CFG_F = os.path.join(BASE, "config.json")
+CFG_F = os.path.join(DATA, "config.json")
 CFG = dict(DEFAULT_CFG, **load_json(CFG_F, {}))
 
 def save_cfg(updates):
@@ -96,17 +101,51 @@ def save_cfg(updates):
         json.dump(cur, f, ensure_ascii=False, indent=1)
     CFG.update(updates or {})
     return CFG
-SHOWS_F = os.path.join(BASE, "shows.json")
-STATE_F = os.path.join(BASE, "state.json")
+SHOWS_F = os.path.join(DATA, "shows.json")
+STATE_F = os.path.join(DATA, "state.json")
 
 # ---------------------------------------------------------------- HTTP
+class MagnetRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """当上游 301/302 重定向到 magnet: 协议时阻止抛出异常，以便捕获磁链"""
+    def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+        if newurl and newurl.startswith("magnet:"):
+            return None
+        return super().redirect_request(req, fp, code, msg, hdrs, newurl)
+
 def http(url, data=None, headers=None, timeout=30, method=None):
     req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read()
+    except urllib.error.HTTPError as e:
+        err_msg = ""
+        try:
+            err_body = e.read().decode("utf-8", errors="ignore")
+            # 尝试提取 json 里的 error 或 msg
+            try:
+                ej = json.loads(err_body)
+                err_msg = ej.get("error") or ej.get("msg") or err_body
+            except Exception:
+                err_msg = err_body
+        except Exception:
+            pass
+        if err_msg:
+            raise RuntimeError(f"HTTP {e.code} 接口调用失败 ({url}): {err_msg}") from None
+        raise RuntimeError(f"HTTP {e.code} 接口调用失败 ({url})") from None
 
 def http_json(url, data=None, headers=None, timeout=30, method=None):
-    return json.loads(http(url, data, headers, timeout, method).decode("utf-8"))
+    raw = http(url, data, headers, timeout, method)
+    return json.loads(raw.decode("utf-8"))
+
+def gy_check_login():
+    """检查光鸭云盘登录状态，若未登录或未启动则直接给出友好提示"""
+    try:
+        d = http_json(GY + "/api/user", timeout=5)
+    except Exception as e:
+        raise RuntimeError(f"无法连接光鸭云盘 App (端口 8998): {e}。请确保已在 fnOS 安装并启动光鸭网盘") from None
+    if d.get("is_logged_in") is False or d.get("error"):
+        raise RuntimeError("光鸭云盘当前未登录或登录态已失效！请先打开 fnOS 应用中心的「光鸭网盘」，扫码登录后再试")
+    return d
 
 def gy_get(path, timeout=30):  return http_json(GY + path, timeout=timeout)
 def gy_post(path, body, timeout=60):
@@ -130,12 +169,33 @@ def gy_find(name, pid):
 
 def gy_ensure_path(names, root=""):
     pid = root
-    for n in names:
+    for raw_n in names:
+        n = sanitize(raw_n)
+        if not n: continue
         fid = gy_find(n, pid)
         if not fid:
-            gy_post("/api/create-folder", {"name": n, "parentId": pid}, timeout=30)
+            # 兼容处理: 飞牛光鸭官方原版 create-folder 接收 name，但其内部 client.py 请求云端 API 规范不同版本可能要求 dirName。
+            # 若创建子目录因接口差异报错(如“文件夹名不能为空”)，降级回退到当前已存在的父目录 pid，绝不阻断磁力任务的正常添加与下载！
+            created = False
+            err_msg = ""
+            for payload in [{"name": n, "dirName": n, "parentId": pid}, {"dirName": n, "parentId": pid}, {"name": n, "parentId": pid}]:
+                try:
+                    res = gy_post("/api/create-folder", payload, timeout=30)
+                    if isinstance(res, dict) and res.get("code") not in (0, None):
+                        err_msg = res.get("msg") or f"错误码 {res.get('code')}"
+                    else:
+                        created = True
+                        break
+                except Exception as e:
+                    err_msg = str(e)
+            
             fid = gy_find(n, pid)
-            if not fid: raise RuntimeError(f"网盘建目录失败: {n}")
+            if not fid:
+                if err_msg:
+                    log(f"⚠️ 网盘创建子目录 [{n}] 失败 ({err_msg})，自动降级挂载至上级目录 (ID: {pid or '根目录'}) 继续下载")
+                else:
+                    log(f"⚠️ 网盘未找到新建目录 [{n}]，自动降级挂载至上级目录 (ID: {pid or '根目录'}) 继续下载")
+                return pid  # 优雅降级返回已成功确认的上一级 pid
         pid = fid
     return pid
 
@@ -152,7 +212,7 @@ def gy_resolve_torrent(tbytes, filename="t.torrent"):
 def gy_add_magnet(url, parent_id, file_indexes=None, new_name=None):
     body = {"url": url, "parentId": parent_id or ""}
     if file_indexes: body["fileIndexes"] = file_indexes
-    if new_name: body["newName"] = new_name[:80]
+    if new_name: body["newName"] = sanitize(new_name)[:80]
     r = gy_post("/api/cloud-add/magnet", body, timeout=90)
     tid = (r.get("data") or {}).get("taskId")
     if not tid:
@@ -162,10 +222,14 @@ def gy_add_magnet(url, parent_id, file_indexes=None, new_name=None):
 def gy_cloud_tasks(pages=2):
     out = []
     for p in range(pages):
-        d = gy_get(f"/api/cloud-add/tasks?page={p}&pageSize=100", timeout=60)
-        lst = d.get("list") or (d.get("data") or {}).get("list") or []
-        out += lst
-        if len(lst) < 100: break
+        try:
+            d = gy_get(f"/api/cloud-add/tasks?page={p}&pageSize=100", timeout=60)
+            lst = d.get("list") or (d.get("data") or {}).get("list") or []
+            out += lst
+            if len(lst) < 100: break
+        except Exception as e:
+            log(f"获取云任务列表第 {p} 页异常: {e}")
+            break
     return out
 
 def gy_download_url(fid): return gy_get(f"/api/download-url?fileId={fid}", timeout=30).get("signedURL")
@@ -173,16 +237,105 @@ def gy_download_url(fid): return gy_get(f"/api/download-url?fileId={fid}", timeo
 def gy_nas_start(fid, fname, target_dir):
     return gy_post("/api/download-task", {"fileId": fid, "fileName": fname, "targetDir": target_dir}, timeout=60)["taskId"]
 
+def gy_cloud_task_delete(task_id, delete_file=False):
+    """从光鸭云任务列表中删除离线任务"""
+    try:
+        return gy_post("/api/cloud-add/delete", {"taskId": str(task_id), "deleteFile": bool(delete_file)}, timeout=15)
+    except Exception as e:
+        log(f"删除光鸭云任务 {task_id} 异常: {e}")
+        return None
+
+def gy_transfer_delete(task_id, delete_file=False):
+    """从光鸭 NAS 下载传输列表中删除记录"""
+    try:
+        return gy_post("/api/transfers/delete", {"taskId": str(task_id), "deleteFile": bool(delete_file)}, timeout=15)
+    except Exception as e:
+        log(f"删除光鸭传输任务 {task_id} 异常: {e}")
+        return None
+
 def gy_transfers(): return gy_get("/api/transfers", timeout=30)
 
 # ---------------------------------------------------------------- Jackett
-def jt_key(): return json.load(open(JT_CFG))["APIKey"]
+def find_jackett_config():
+    """多路径自动发现 Jackett 的 ServerConfig.json 文件"""
+    env_cfg = os.environ.get("JACKETT_CONFIG")
+    if env_cfg and os.path.isfile(env_cfg):
+        return env_cfg
+
+    cfg_val = CFG.get("jackett_config", "")
+    if cfg_val and os.path.isfile(cfg_val):
+        return cfg_val
+
+    # 1. 扫描各存储卷 /vol*/@appdata/jackett/data/ServerConfig.json
+    import glob
+    for c in sorted(glob.glob("/vol*/@appdata/jackett/data/ServerConfig.json")):
+        if os.path.isfile(c):
+            return c
+
+    # 2. 扫描 /volume*/@appdata/jackett/data/ServerConfig.json
+    for c in sorted(glob.glob("/volume*/@appdata/jackett/data/ServerConfig.json")):
+        if os.path.isfile(c):
+            return c
+
+    # 3. 常见 Linux 路径
+    for p in [
+        "/var/lib/jackett/data/ServerConfig.json",
+        "/var/lib/jackett/ServerConfig.json",
+        os.path.expanduser("~/.config/Jackett/ServerConfig.json"),
+        "/root/.config/Jackett/ServerConfig.json",
+        "/home/jackett/.config/Jackett/ServerConfig.json",
+    ]:
+        if os.path.isfile(p):
+            return p
+
+    # 4. 从运行中进程动态查找
+    try:
+        out = subprocess.check_output(["ps", "-eo", "args"], text=True, stderr=subprocess.DEVNULL)
+        for line in out.splitlines():
+            if "jackett" in line.lower() and "--DataFolder" in line:
+                parts = line.split()
+                for i, arg in enumerate(parts):
+                    if arg == "--DataFolder" and i + 1 < len(parts):
+                        cfg = os.path.join(parts[i+1], "ServerConfig.json")
+                        if os.path.isfile(cfg):
+                            return cfg
+    except Exception:
+        pass
+
+    return None
+
+def jt_key():
+    """获取 Jackett APIKey：配置/环境变量优先，否则从 ServerConfig.json 自动读取"""
+    val = (CFG.get("jackett_apikey") or "").strip()
+    if val:
+        return val
+
+    env_key = os.environ.get("JACKETT_APIKEY", "").strip()
+    if env_key:
+        return env_key
+
+    cfg_file = find_jackett_config()
+    if cfg_file and os.path.isfile(cfg_file):
+        try:
+            with open(cfg_file, encoding="utf-8") as f:
+                k = json.load(f).get("APIKey")
+                if k:
+                    return k.strip()
+        except Exception as e:
+            log(f"读取 Jackett 配置文件 {cfg_file} 失败: {e}")
+
+    raise RuntimeError(
+        "未找到 Jackett APIKey。请确认 Jackett 已安装并启动，"
+        "或在控制台「设置」中填写 Jackett APIKey，"
+        "或设置环境变量 JACKETT_CONFIG 指向 ServerConfig.json"
+    )
 
 def jackett_search(query, category=None):
     """并行搜索5索引器 → 标准化结果列表"""
     key = jt_key()
+    jt_url = (CFG.get("jackett_url") or JT).rstrip("/")
     def one(idx):
-        url = (f"{JT}/api/v2.0/indexers/{idx}/results?apikey={key}"
+        url = (f"{jt_url}/api/v2.0/indexers/{idx}/results?apikey={key}"
                + (f"&Category={category}" if category else "")
                + "&Query=" + urllib.parse.quote(query))
         try:
@@ -246,14 +399,23 @@ def bt4g_search(query):
 
 def to_magnet(res):
     """结果 → (magnet, files_hint) ; 仅有种子的先下载字节再resolve"""
-    if res["magnet"]:
+    if res.get("magnet"):
         return res["magnet"], None
-    if res["link"]:
-        raw = http(res["link"], timeout=40)
-        d = gy_resolve_torrent(raw)
-        ih = d.get("infohash") or res["infohash"]
-        if not ih: return None, None
-        return f"magnet:?xt=urn:btih:{ih.upper()}", None
+    if res.get("link"):
+        opener = urllib.request.build_opener(MagnetRedirectHandler)
+        try:
+            req = urllib.request.Request(res["link"], headers={"User-Agent": "Mozilla/5.0"})
+            with opener.open(req, timeout=40) as resp:
+                raw = resp.read()
+                d = gy_resolve_torrent(raw)
+                ih = d.get("infohash") or res.get("infohash")
+                if not ih: return None, None
+                return f"magnet:?xt=urn:btih:{ih.upper()}", None
+        except urllib.error.HTTPError as e:
+            loc = e.headers.get("Location") or ""
+            if e.code in (301, 302, 303, 307, 308) and loc.startswith("magnet:"):
+                return loc, None
+            raise
     return None, None
 
 # ---------------------------------------------------------------- 解析
@@ -376,7 +538,13 @@ def rank_key(r):
     return (lang_score(p.get("langs") or set()), not p["proper"], src) + \
            pref_score(p) + (dv, -r["seeders"], -r["size"])
 
-def show_key(name): return re.sub(r"\s+", " ", name).strip().title()
+def sanitize(name):
+    # 过滤文件系统与光鸭云盘非法字符: \ / : * ? " < > |
+    return re.sub(r'[\\/:*?"<>|]+', " ", name).strip()[:120]
+
+def show_key(name):
+    clean = sanitize(name)
+    return re.sub(r"\s+", " ", clean).strip().title()
 
 def wanted_qualities():
     """本轮可接受的清晰度集合: 首选 + 显式允许的降级档; any=不限"""
@@ -445,10 +613,7 @@ def cn2en(title):
 
 def clean_release(title):
     t = re.sub(r"\[.*?\]|\(.*?\)", " ", title)
-    return re.sub(r"\s+", " ", t).strip(" .-")[:70]
-
-def sanitize(name):
-    return re.sub(r'[\\/:*?"<>|]+', " ", name).strip()[:120]
+    return sanitize(re.sub(r"\s+", " ", t).strip(" .-")[:70])
 
 def is_video(name):
     return name.lower().endswith((".mkv", ".mp4", ".ts", ".m2ts", ".avi", ".mov", ".wmv"))
@@ -695,10 +860,23 @@ def best_for_movie(results, quality="2160p"):
 
 def submit(res, label, parent_path, wanted_eps=None, min_mb=None):
     """resolve → 选文件 → 建云任务。返回 (taskId, magnet, picked_files)"""
+    gy_check_login()
     magnet, _ = to_magnet(res)
     if not magnet: raise RuntimeError("无法获得磁链")
     resolved = gy_resolve(magnet)
     files = resolved.get("files") or []
+
+    # 单文件磁力兜底: 光鸭 resolve 后 files 可能为空，但 title/totalSize 明确代表单文件
+    if not files and resolved.get("totalSize", 0) >= (min_mb or CFG["min_video_mb"]) * MB:
+        single_title = resolved.get("title") or label
+        if is_video(single_title) or (not os.path.splitext(single_title)[1] and is_video(res.get("title") or "")):
+            files = [{
+                "fileIndex": 0,
+                "fileName": single_title,
+                "fileSize": resolved.get("totalSize", 0),
+                "selected": True
+            }]
+
     vids = [f for f in files if is_video(f.get("fileName") or "")
             and (f.get("fileSize") or 0) >= (min_mb or CFG["min_video_mb"]) * MB
             and "sample" not in (f.get("fileName") or "").lower()]
@@ -721,7 +899,8 @@ def submit(res, label, parent_path, wanted_eps=None, min_mb=None):
         if picked: vids = picked
     if not vids:
         raise RuntimeError(f"资源中无可选视频文件(>={CFG['min_video_mb']}MB): {[f.get('fileName') for f in files][:5]}")
-    idxs = [f["fileIndex"] for f in vids]
+    # 注意: 若原始 resolve 结果中 files 为空 (单文件磁力)，光鸭 API 不接受 fileIndexes 参数 (传 [0] 会报错误码 112: 参数错误)
+    idxs = [f["fileIndex"] for f in vids] if (resolved.get("files") and len(resolved["files"]) > 0) else None
     parent_id = gy_ensure_path(parent_path)
     tid = gy_add_magnet(magnet, parent_id, idxs, sanitize(label))
     return tid, magnet, vids
@@ -743,34 +922,54 @@ def phase_cloud(st):
                 t["stage"] = "failed"; t["error"] = "云任务列表中未找到(24h)"
                 event(f"失败 {t['label']}: 云任务丢失")
             continue
-        # 完成判定: progress 可能是 None(新版API不下发) → 以目录内是否已有实际文件为准
+        # 异常状态判定: status=3 代表云端出错(如 errCode 112: 参数错误, 或离线下载失败)
+        if ct.get("status") == 3:
+            err_msg = ct.get("errMsg") or f"错误码 {ct.get('errCode')}"
+            t["stage"] = "failed"; t["error"] = f"云端任务失败: {err_msg}"
+            event(f"失败 {t['label']}: 云端任务失败({err_msg})")
+            continue
+        # 完成判定: progress 可能是 None(新版API不下发) → 以目录内或文件自身是否可下载为准
         prog = ct.get("progress")
         done = (int(prog) >= 100) if prog is not None else False
-        if not done and ct.get("fileId"):
+        fid = ct.get("fileId")
+        if not done and fid:
             try:
-                done = bool(walk_videos(ct["fileId"]))
+                # 若任务本身为单文件直落，或者目录下已有完成的视频文件
+                vids = walk_videos(fid, default_name=ct.get("fileName") or t.get("label"), default_size=ct.get("totalSize") or 0)
+                done = bool(vids)
             except Exception:
                 done = False
-        if done and ct.get("fileId"):
-            t["cloudFileId"] = ct["fileId"]
-            start_nas_for_task(st, k, t)
+        if done and fid:
+            t["cloudFileId"] = fid
+            start_nas_for_task(st, k, t, fallback_name=ct.get("fileName") or t.get("label"), fallback_size=ct.get("totalSize") or 0)
         elif time.time() - t.get("added", 0) > CFG["cloud_stale_hours"] * 3600:
             t["stage"] = "failed"; t["error"] = f"云任务超时 progress={prog}"
             event(f"失败 {t['label']}: 云任务超时")
 
-def walk_videos(fid, depth=0):
-    """递归云盘目录, 返回 [(fileId, fileName, size)]"""
+def walk_videos(fid, depth=0, default_name=None, default_size=0):
+    """递归云盘目录, 返回 [(fileId, fileName, size)]。若 fid 本身即为单文件直链，直接返回单文件元组。"""
     if depth > 4: return []
     out = []
-    for e in gy_list(fid):
+    entries = gy_list(fid)
+    if not entries:
+        # 如果列不出子项，探测该 fid 是否自身就是可下载的文件直链
+        try:
+            if gy_download_url(fid):
+                name = default_name or f"file_{fid}.mkv"
+                return [(fid, name, default_size)]
+        except Exception:
+            pass
+        return []
+
+    for e in entries:
         if is_file_entry(e):
             if is_video(e.get("fileName") or ""): out.append((e["fileId"], e["fileName"], e.get("fileSize") or 0))
         else:
             out += walk_videos(e["fileId"], depth + 1)
     return out
 
-def start_nas_for_task(st, k, t):
-    vids = walk_videos(t["cloudFileId"])
+def start_nas_for_task(st, k, t, fallback_name=None, fallback_size=0):
+    vids = walk_videos(t["cloudFileId"], default_name=fallback_name, default_size=fallback_size)
     if not vids:
         t["stage"] = "failed"; t["error"] = "云目录中无视频文件"
         event(f"失败 {t['label']}: 云目录无视频"); return
@@ -1051,6 +1250,7 @@ def cmd_add(args):
                           "added": time.time(), "stage": "cloud", "wanted": [(s, e)]}
         st["processed"].append(magnet.upper().split("btih:")[-1].split("&")[0])
         save_state(st)
+        event(f"已创建追剧云下载: {name} S{s:02d}E{e:02d}")
         print(f"云任务 {tid} 已创建, 之后 run/poll 会自动推进到NAS并补字幕")
     elif is_tv_query(title):
         sys.exit("暂不支持整季包下载, 请用单集标题(如 剧名 S02E07)或 addshow 登记追踪")
@@ -1070,6 +1270,7 @@ def cmd_add(args):
                           "added": time.time(), "stage": "cloud"}
         st["processed"].append(magnet.upper().split("btih:")[-1].split("&")[0])
         save_state(st)
+        event(f"已创建电影云下载: {label}")
         print(f"云任务 {tid} 已创建, 之后 run/poll 会自动推进到NAS并补字幕")
 
 def no4k_exit(results):
@@ -1144,6 +1345,25 @@ def cmd_run(args):
 def cmd_sub(args):
     r = find_subtitle(args.file, os.path.splitext(os.path.basename(args.file))[0][:40])
     print(r)
+
+def delete_task(task_key):
+    """从 state.json 中删除任务，并尽可能取消/删除光鸭云任务与传输任务"""
+    st = state()
+    if task_key not in st.get("tasks", {}):
+        return False, "任务不存在"
+    t = st["tasks"].pop(task_key)
+    # 尝试删除光鸭端对应的离线任务
+    cid = t.get("cloudTaskId")
+    if cid:
+        gy_cloud_task_delete(cid)
+    # 尝试删除光鸭端的下载传输
+    for n in t.get("nas", []):
+        nid = n.get("nasTaskId")
+        if nid:
+            gy_transfer_delete(nid)
+    save_state(st)
+    log(f"已手动删除任务: {task_key} ({t.get('label')})")
+    return True, f"已删除任务 {t.get('label')}"
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
