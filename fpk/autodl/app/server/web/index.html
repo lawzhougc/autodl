@@ -5,14 +5,32 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>影视资源自动追踪控制台</title>
 <style>
-:root{--bg:#0f1420;--card:#1a2130;--line:#2a3347;--tx:#e6ebf4;--dim:#8a94a8;--acc:#4f8cff;--ok:#3fb96f;--warn:#e0a13f;--bad:#e05c5c}
+:root{--bg:#0f1420;--card:#1a2130;--line:#2a3347;--tx:#e6ebf4;--dim:#8a94a8;--acc:#4f8cff;--ok:#3fb96f;--warn:#e0a13f;--bad:#e05c5c;--side:#131a28;--hov:#1c2536;--inp:#0d1119;--rowline:#212a3c;--barbg:#0d1119;--tagcloud:#3a2f12;--tagcloud-tx:var(--warn);--tag-nas-bg:#122a3a;--flash-ok-bg:#12321f;--flash-ok-tx:var(--ok);--flash-err-bg:#3a1212;--flash-err-tx:var(--bad)}
+html[data-theme=light]{--bg:#f3f5f9;--card:#ffffff;--line:#dfe4ec;--tx:#1c2433;--dim:#68727f;--acc:#2f6fe0;--ok:#1f9d55;--warn:#b97a12;--bad:#d64545;--side:#ffffff;--hov:#eef2f8;--inp:#f6f8fb;--rowline:#eceff4;--barbg:#e8ecf2;--tagcloud:#faf0dc;--tagcloud-tx:#9a6a08;--tag-nas-bg:#e3f1fb;--flash-ok-bg:#e4f5ea;--flash-ok-tx:#1f7a44;--flash-err-bg:#fdeaea;--flash-err-tx:#c0392b}
+body{transition:background .2s,color .2s}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--tx);font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;padding:20px;max-width:980px;margin:0 auto}
-h1{font-size:22px;margin-bottom:4px}
-.sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+body{background:var(--bg);color:var(--tx);font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;display:flex;min-height:100vh}
+/* ---- 左侧导航 ---- */
+#side{width:190px;flex-shrink:0;background:var(--side);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh}
+#side .logo{font-size:16px;font-weight:600;padding:4px 10px 2px;white-space:nowrap}
+#side .sub{color:var(--dim);font-size:11px;padding:0 10px 14px;line-height:1.5}
+#side nav{display:flex;flex-direction:column;gap:4px}
+#side nav button{display:flex;align-items:center;gap:9px;background:transparent;border:0;color:var(--dim);padding:10px 12px;border-radius:9px;font-size:14px;cursor:pointer;text-align:left;width:100%}
+#side nav button:hover{background:var(--hov);color:var(--tx)}
+#side nav button.on{background:var(--acc);color:#fff}
+#side nav button .pill{margin-left:auto;margin-right:0;font-size:11px;padding:0 7px}
+#side .foot{margin-top:auto;padding:10px;font-size:11px;color:var(--dim);line-height:1.7}
+#side .foot a{display:block}
+/* ---- 主区 ---- */
+#main{flex:1;min-width:0;padding:20px 24px;max-width:1020px}
+h1{font-size:20px;margin-bottom:2px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:16px}
+.page{display:none}
+.page.on{display:block}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
 h2{font-size:16px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
-input[type=text]{background:#0d1119;border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px;width:100%}
+input[type=text]{background:var(--inp);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px;width:100%}
+input[type=number]{background:var(--inp);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px}
 input:focus{outline:none;border-color:var(--acc)}
 .row{display:flex;gap:8px;align-items:center}
 button{background:var(--acc);border:0;border-radius:8px;color:#fff;padding:9px 16px;font-size:14px;cursor:pointer;white-space:nowrap}
@@ -20,37 +38,64 @@ button:hover{filter:brightness(1.15)}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
 button.mini{padding:4px 10px;font-size:12px;border-radius:6px}
 button.bad{background:var(--bad)}
-select{background:#0d1119;border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 10px;font-size:14px}
+select{background:var(--inp);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 10px;font-size:14px}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th{color:var(--dim);font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px}
-td{padding:8px;border-bottom:1px solid #212a3c;vertical-align:top}
+td{padding:8px;border-bottom:1px solid var(--rowline);vertical-align:top}
 .tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px}
-.tag.cloud{background:#3a2f12;color:var(--warn)}
-.tag.nas{background:#122a3a;color:#57b6f0}
-.tag.done{background:#12321f;color:var(--ok)}
-.tag.failed{background:#3a1212;color:var(--bad)}
+.tag.cloud{background:var(--tagcloud);color:var(--tagcloud-tx)}
+.tag.nas{background:var(--tag-nas-bg);color:#57b6f0}
+.tag.done{background:var(--flash-ok-bg);color:var(--flash-ok-tx)}
+.tag.failed{background:var(--flash-err-bg);color:var(--flash-err-tx)}
 .dim{color:var(--dim);font-size:13px}
-.bar{height:6px;background:#0d1119;border-radius:4px;overflow:hidden;margin-top:4px}
+.bar{height:6px;background:var(--inp);border-radius:4px;overflow:hidden;margin-top:4px}
 .bar i{display:block;height:100%;background:var(--acc)}
-#searchRes .item{padding:8px;border-bottom:1px solid #212a3c;display:flex;justify-content:space-between;gap:10px;align-items:center}
-#searchRes .t{flex:1;min-width:0}
+#searchRes .item,.item{padding:8px;border-bottom:1px solid var(--rowline);display:flex;justify-content:space-between;gap:10px;align-items:center}
+#searchRes .t,.item .t{flex:1;min-width:0}
 #searchRes .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13.5px}
-.flash{padding:8px 12px;border-radius:8px;margin:10px 0;font-size:13.5px;display:none}
-.flash.ok{display:block;background:#12321f;color:var(--ok)}
-.flash.err{display:block;background:#3a1212;color:var(--bad)}
+.flash{padding:8px 12px;border-radius:8px;margin:0 0 14px;font-size:13.5px;display:none}
+.flash.ok{display:block;background:var(--flash-ok-bg);color:var(--flash-ok-tx)}
+.flash.err{display:block;background:var(--flash-err-bg);color:var(--flash-err-tx)}
 .mt{margin-top:10px}
+.mb{margin-bottom:10px}
 .pill{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:2px 10px;margin-right:6px}
 a{color:var(--acc);text-decoration:none}
-.events{font-size:12px;color:var(--dim);max-height:180px;overflow:auto;white-space:pre-wrap}
+.events{font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;color:var(--dim);height:calc(100vh - 230px);min-height:420px;overflow:auto;white-space:pre-wrap;background:var(--inp);border:1px solid var(--line);border-radius:8px;padding:12px 14px;line-height:1.6}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+@media(max-width:760px){
+  body{flex-direction:column}
+  #side{width:100%;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px 14px;gap:8px}
+  #side nav{flex-direction:row;flex-wrap:wrap}
+  #side nav button{width:auto;padding:7px 11px}
+  #side .sub,#side .foot{display:none}
+  #main{padding:14px}
+  .grid2{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
-<h1>🎬 影视资源自动追踪控制台</h1>
-<div class="sub">多源搜索(7 索引器 + bt4g) → 光鸭云下载 → NAS → 自动中文字幕 · 追剧/电影自动追踪 · 每集自动落地到媒体库</div>
+
+<aside id="side">
+  <div class="logo">🎬 影视追踪</div>
+  <div class="sub">搜索 → 光鸭云下载 → NAS → 自动中文字幕</div>
+  <nav>
+    <button data-page="home" class="on">🏠 总览</button>
+    <button data-page="lib">📋 片单 <span class="pill" id="navCounts"></span></button>
+    <button data-page="cfg">⚙️ 设置</button>
+    <button data-page="log">📜 日志</button>
+  </nav>
+  <div class="foot">
+    <button id="themeBtn" class="ghost" onclick="toggleTheme()" style="width:100%;padding:7px 10px;font-size:13px">🌙 夜间模式</button>
+    <a id="linkGuangya" href="javascript:void(0)" onclick="openHostPort(8998)" target="_blank">光鸭网盘 ↗</a>
+    <a id="linkJackett" href="javascript:void(0)" onclick="openHostPort(9117)" target="_blank">Jackett ↗</a>
+  </div>
+</aside>
+
+<main id="main">
 <div id="flash" class="flash"></div>
 
+<!-- ============ 总览 ============ -->
+<div class="page on" id="page-home">
 <div class="card">
   <h2>➕ 登记想看的片</h2>
   <div class="row">
@@ -59,11 +104,34 @@ a{color:var(--acc);text-decoration:none}
     <button onclick="addWish()">登记</button>
     <button class="ghost" onclick="doSearch()">🔍 搜索资源</button>
   </div>
-  <div class="dim mt">登记后进入「心愿清单」; 搜索结果里可直接选资源立即下载。</div>
+  <div class="dim mt">登记后进入「片单」; 搜索结果里可直接选资源立即下载。支持中文片名（如 黑帮领地 第二季）。</div>
   <div id="searchRes" class="mt" style="display:none"></div>
 </div>
 
+<div class="card">
+  <h2>⏬ 任务进度
+    <span style="flex:1"></span>
+    <button class="mini ghost" onclick="api('/api/run','已触发全量 run')">▶ 手动 run</button>
+    <button class="mini ghost" onclick="api('/api/poll','已触发 poll')">⟳ 推进任务</button>
+  </h2>
+  <table><thead><tr><th>任务</th><th>阶段</th><th>进度 / 详情</th><th style="width:50px;text-align:right">操作</th></tr></thead><tbody id="taskList"></tbody></table>
+  <div class="dim" id="taskEmpty" style="display:none">暂无进行中任务</div>
+</div>
+
 <div class="grid2">
+<div class="card">
+  <h2>⏳ 排队中的剧集与电影</h2>
+  <div id="waiting" class="dim">暂无</div>
+</div>
+<div class="card">
+  <h2>📺 追剧中</h2>
+  <div id="watchBrief" class="dim">加载中…</div>
+</div>
+</div>
+</div>
+
+<!-- ============ 片单 ============ -->
+<div class="page" id="page-lib">
 <div class="card">
   <h2>📋 心愿清单 <span class="pill" id="wishCount"></span></h2>
   <table><tbody id="wishList"></tbody></table>
@@ -81,17 +149,26 @@ a{color:var(--acc);text-decoration:none}
 </div>
 </div>
 
+<!-- ============ 设置 ============ -->
+<div class="page" id="page-cfg">
 <div class="card">
-  <h2>⏬ 任务进度
-    <span style="flex:1"></span>
-    <button class="mini ghost" onclick="api('/api/run','已触发全量 run')">▶ 手动 run</button>
-    <button class="mini ghost" onclick="api('/api/poll','已触发 poll')">⟳ 推进任务</button>
-  </h2>
-  <table><thead><tr><th>任务</th><th>阶段</th><th>详情</th></tr></thead><tbody id="taskList"></tbody></table>
-  <div class="dim" id="taskEmpty" style="display:none">暂无进行中任务</div>
+  <h2>📁 存储与下载目录</h2>
+  <div class="dim mb">设置光鸭云盘网盘内的转存归档根目录，以及最终下载回 NAS 的本地媒体库根目录。</div>
+  <table>
+    <tbody>
+      <tr><td style="width:180px">NAS 媒体库路径</td>
+          <td><input id="cfgMediaRoot" type="text" style="width:320px" placeholder="/vol3/1000/媒体库2">
+          <span class="dim">— 本地存储绝对路径（剧集和电影将自动存放于此目录下）</span></td></tr>
+      <tr><td>云盘根目录</td>
+          <td><input id="cfgCloudRoot" type="text" style="width:200px" placeholder="自动下载">
+          <span class="dim">— 光鸭网盘中的顶层存放文件夹名称</span></td></tr>
+    </tbody>
+  </table>
+  <div class="mt"><button class="mini" onclick="saveDir()">💾 保存路径设置</button></div>
+  <div class="dim mt" id="dirSaved"></div>
 </div>
 
-<div class="card">
+<div class="card mt">
   <h2>⚙️ 下载节奏设置</h2>
   <div class="dim mb">控制已上线剧集的补集节奏。未上线的新集只要搜到 2160p 就自动下载（除非关闭下方开关）。</div>
   <table>
@@ -174,15 +251,54 @@ a{color:var(--acc);text-decoration:none}
   <div class="dim mt" id="fqSaved"></div>
 </div>
 
-<div class="card">
-  <h2>⏳ 排队中的集数</h2>
-  <div id="waiting" class="dim">暂无</div>
+<div class="card mt">
+  <h2>🔌 Jackett 服务配置</h2>
+  <div class="dim mb">如未手动指定，系统会自动扫描 NAS 各存储卷及运行进程定位 ServerConfig.json 并提取 APIKey。若提示找不到或部署在其它机器，可在此手动指定。</div>
+  <table class="form-table">
+    <tbody>
+      <tr><td>服务地址</td>
+          <td><input id="cfgJtUrl" type="text" style="width:260px" placeholder="http://127.0.0.1:9117">
+          <span class="dim">— 默认 http://127.0.0.1:9117</span></td></tr>
+      <tr><td>APIKey</td>
+          <td><input id="cfgJtKey" type="password" style="width:260px" placeholder="留空则自动从配置文件读取">
+          <span class="dim">— 在 Jackett 控制台右上角可复制</span></td></tr>
+      <tr><td>配置文件路径</td>
+          <td><input id="cfgJtPath" type="text" style="width:360px" placeholder="留空自动检测（如 /vol1/@appdata/jackett/data/ServerConfig.json）">
+          <span class="dim">— 留空自动搜索所有 /vol*/@appdata/jackett/data/ 卷</span></td></tr>
+    </tbody>
+  </table>
+  <div class="mt"><button class="mini" onclick="saveJt()">💾 保存 Jackett 配置</button></div>
+  <div class="dim mt" id="jtSaved"></div>
+</div>
 </div>
 
+<!-- ============ 日志 ============ -->
+<div class="page" id="page-log">
 <div class="card">
-  <h2>📜 近期事件</h2>
+  <h2>📜 运行日志</h2>
+  <div class="dim mb" id="logHelp" style="line-height:1.5">
+    💡 <b>关键动作日志 (events.log)</b>：专门记录高价值的业务里程碑，如「云任务添加成功」、「开始 NAS 下载并指定存储路径」、「中文字幕下载与转码匹配」、「任务全部完成」等核心事件。
+  </div>
+  <div class="mb" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <select id="logSrc" onchange="onLogSrcChange()">
+      <option value="events">📌 关键动作日志 (events.log) — 落地完成/字幕匹配/核心动作</option>
+      <option value="run">🔍 调度与搜索日志 (run.log) — 后台轮询/资源匹配细节/异常调试</option>
+      <option value="cron">⏰ 定时唤醒日志 (cron.log) — 系统每小时定时执行的输出</option>
+      <option value="web">🌐 网页操作日志 (webjobs.log) — 页面提交的搜索与下载执行输出</option>
+    </select>
+    <select id="logLines" onchange="refreshLog()">
+      <option value="100">最近 100 行</option>
+      <option value="300">最近 300 行</option>
+      <option value="1000">最近 1000 行</option>
+    </select>
+    <button onclick="refreshLog()" class="mini">刷新</button>
+    <span class="dim" id="logMeta" style="font-size:11px"></span>
+  </div>
   <div class="events" id="events">加载中…</div>
 </div>
+</div>
+
+</main>
 
 <script>
 const $=s=>document.querySelector(s);
@@ -190,6 +306,56 @@ function flash(msg,ok=true){const f=$('#flash');f.textContent=msg;f.className='f
 async function jget(u){const r=await fetch(u);const d=await r.json();if(d.error)throw d.error;return d}
 async function jpost(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});const d=await r.json();if(d.error)throw d.error;return d}
 function api(u,msg){return jpost(u).then(()=>{flash(msg);refresh()}).catch(e=>flash(e,false))}
+
+/* ---- 标签导航 ---- */
+function openHostPort(port){
+  const host = location.hostname || '127.0.0.1';
+  window.open(`http://${host}:${port}`, '_blank');
+}
+function updateHostLinks(){
+  const host = location.hostname || '127.0.0.1';
+  const gy = $('#linkGuangya'), jt = $('#linkJackett');
+  if(gy) gy.href = `http://${host}:8998`;
+  if(jt) jt.href = `http://${host}:9117`;
+}
+updateHostLinks();
+
+function showPage(id,silent){
+  document.querySelectorAll('.page').forEach(p=>p.classList.toggle('on',p.id==='page-'+id));
+  document.querySelectorAll('#side nav button').forEach(b=>b.classList.toggle('on',b.dataset.page===id));
+  try{localStorage.setItem('autodl_page',id)}catch(e){}
+  if(id==='log') refreshLog();
+}
+
+/* ---- 主题切换（日间/夜间） ---- */
+function applyTheme(t){
+  document.documentElement.dataset.theme=t;
+  const b=$('#themeBtn');
+  if(b) b.textContent = t==='light' ? '☀️ 日间模式' : '🌙 夜间模式';
+  try{localStorage.setItem('autodl_theme',t)}catch(e){}
+}
+function toggleTheme(){
+  applyTheme(document.documentElement.dataset.theme==='light' ? 'dark' : 'light');
+}
+applyTheme((()=>{try{return localStorage.getItem('autodl_theme')}catch(e){return null}})()||'dark');
+document.querySelectorAll('#side nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
+showPage((()=>{try{return localStorage.getItem('autodl_page')}catch(e){return null}})()||'home',true);
+
+async function saveDir(){
+  const mr = $('#cfgMediaRoot').value.trim();
+  const cr = $('#cfgCloudRoot').value.trim();
+  if(!mr) return flash('NAS 媒体库路径不能为空', false);
+  if(!cr) return flash('云盘根目录不能为空', false);
+  try{
+    await jpost('/api/config', {media_root: mr, cloud_root: cr});
+    $('#dirSaved').textContent = '已保存 ' + new Date().toLocaleTimeString();
+    flash('存储目录已保存');
+    delete $('#cfgMediaRoot').dataset.init;
+    delete $('#cfgCloudRoot').dataset.init;
+    refresh();
+  }catch(e){flash(e, false)}
+}
+
 async function saveCfg(){
   const body={batch_size:+$('#cfgBatch').value, batch_interval_hours:+$('#cfgGap').value,
               backfill_enabled:$('#cfgBackfill').checked, auto_download_new:$('#cfgAuto').checked,
@@ -225,6 +391,18 @@ async function saveFq(){
   }catch(e){flash(e,false)}
 }
 
+async function saveJt(){
+  const body={jackett_url:$('#cfgJtUrl').value.trim()||'http://127.0.0.1:9117',
+              jackett_apikey:$('#cfgJtKey').value.trim(),
+              jackett_config:$('#cfgJtPath').value.trim()};
+  try{await jpost('/api/config',body);
+    $('#jtSaved').textContent='已保存 '+new Date().toLocaleTimeString();
+    flash('Jackett 配置已保存');
+    ['#cfgJtUrl','#cfgJtKey','#cfgJtPath'].forEach(k=>delete $(k).dataset.init);
+    refresh();
+  }catch(e){flash(e,false)}
+}
+
 async function addWish(){
   const name=$('#wishName').value.trim(); if(!name)return flash('先填名称',false);
   try{await jpost('/api/wish',{name,kind:$('#wishKind').value});$('#wishName').value='';flash('已登记: '+name);refresh()}
@@ -236,33 +414,92 @@ async function addShow(){
   catch(e){flash(e,false)}
 }
 function rmShow(name){if(confirm('移除追剧: '+name+'?'))jpost('/api/rmshow',{name}).then(refresh)}
-async function doSearch(){
-  const q=$('#wishName').value.trim(); if(!q)return flash('先填搜索词',false);
-  const box=$('#searchRes');box.style.display='block';box.innerHTML='<div class="dim">搜索中(约30-60秒)…</div>';
-  try{
-    const d=await jget('/api/search?q='+encodeURIComponent(q));
-    let h=`<div class="dim">共${d.total}条 · ${d.kind==='tv'?'剧集':'电影'} · 4K ${d.q4k.length}条</div>`;
-    if(d.recognized)h+=`<div class="dim">🀄 识别: ${esc(d.orig)} → <b>${esc(d.recognized)}</b></div>`;
-    if(d.best)h+=`<div class="item"><div class="t">★ 推荐: <b>${d.best}</b></div><button class="mini" onclick="download('${esc(q)}')">⬇ 下载推荐</button></div>`;
-    if(!d.q4k.length&&d.lo1080.length)h+='<div class="dim mt">无4K资源, 1080p候选:</div>';
+let _searchTimer = null;
+function renderSearchResults(q, d){
+  const box=$('#searchRes');
+  box.style.display='block';
+  let h=`<div class="row mb" style="justify-content:space-between">
+    <span class="dim"><b>「${esc(q)}」</b> · 共${d.total}条 · ${d.kind==='tv'?'剧集':'电影'} · 4K ${d.q4k.length}条</span>
+    <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 关闭结果</button>
+  </div>`;
+  if(d.recognized)h+=`<div class="dim mb">🀄 识别: ${esc(d.orig)} → <b>${esc(d.recognized)}</b></div>`;
+  if(d.best)h+=`<div class="item" style="background:var(--hov);border-radius:8px;padding:8px 12px"><div class="t">★ 4K首选推荐: <b>${esc(d.best)}</b></div><button class="mini" onclick="download('${esc(q)}')">⬇ 下载4K推荐</button></div>`;
+  if(!d.q4k.length && d.lo1080.length){
+    h+=`<div class="item" style="background:var(--flash-err-bg);border:1px solid var(--bad);border-radius:8px;padding:10px 12px;margin-top:8px">
+      <div class="t" style="color:var(--bad)">⚠️ <b>未检索到 4K (2160p) 资源</b>，检测到 ${d.lo1080.length} 条优质 1080p 候选</div>
+      <div style="display:flex;gap:6px">
+        <button class="mini" style="background:var(--warn)" onclick="download1080('${esc(q)}')">⬇ 降级下载 1080p</button>
+        <button class="mini ghost" onclick="wishTrack4K('${esc(q)}')">⏳ 保持追踪4K</button>
+      </div>
+    </div>`;
+  }
+  if(d.q4k.length){
     d.q4k.forEach(r=>{
       h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${r.langs&&r.langs.length?' · '+r.langs.join(',').toUpperCase():''}</span></div>
-      <button class="mini" onclick="download('${esc(q)}')">⬇ 推荐</button></div>`;
+      <button class="mini" onclick="download('${esc(q)}')">⬇ 下载4K</button></div>`;
     });
+  }
+  if(d.lo1080.length){
+    h+=`<div class="dim mt" style="font-weight:600">1080p 备选资源:</div>`;
     d.lo1080.forEach(r=>{
       h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">1080p · ${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}</span></div>
-      <button class="mini ghost" onclick="download1080('${esc(q)}')">⬇ 1080p</button></div>`;
+      <button class="mini ghost" onclick="download1080('${esc(q)}')">⬇ 下载1080p</button></div>`;
     });
-    if(!d.q4k.length&&!d.lo1080.length)h+='<div class="dim">无可用资源</div>';
-    box.innerHTML=h;
-  }catch(e){box.innerHTML='<div class="dim">搜索失败: '+esc(e)+'</div>'}
+  }
+  if(!d.q4k.length&&!d.lo1080.length)h+='<div class="dim mt">未检索到可用资源</div>';
+  box.innerHTML=h;
+}
+
+async function checkSearchStatus(){
+  try{
+    const st = await jget('/api/search/status');
+    const box = $('#searchRes');
+    if(!st || st.status === 'idle') return;
+    if(st.status === 'running'){
+      box.style.display = 'block';
+      const sec = Math.round((Date.now() - (st.start_time * 1000)) / 1000);
+      box.innerHTML = `<div class="row" style="justify-content:space-between">
+        <span class="dim">⏳ 正在后台搜索: <b>「${esc(st.q)}」</b> (已耗时 ${sec} 秒，窗口关闭不影响)…</span>
+        <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 隐藏</button>
+      </div>`;
+      if(!_searchTimer) _searchTimer = setInterval(checkSearchStatus, 2000);
+    } else if(st.status === 'done' && st.data){
+      if(_searchTimer){ clearInterval(_searchTimer); _searchTimer = null; }
+      renderSearchResults(st.q, st.data);
+    } else if(st.status === 'error'){
+      if(_searchTimer){ clearInterval(_searchTimer); _searchTimer = null; }
+      box.style.display = 'block';
+      box.innerHTML = `<div class="row" style="justify-content:space-between">
+        <span class="dim">搜索「${esc(st.q)}」失败: ${esc(st.error)}</span>
+        <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 关闭</button>
+      </div>`;
+    }
+  }catch(e){}
+}
+
+async function doSearch(){
+  const q=$('#wishName').value.trim(); if(!q)return flash('先填搜索词',false);
+  const box=$('#searchRes');box.style.display='block';
+  box.innerHTML=`<div class="row" style="justify-content:space-between">
+    <span class="dim">⏳ 正在后台搜索: <b>「${esc(q)}」</b> (约30-60秒，窗口关闭不影响)…</span>
+    <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 隐藏</button>
+  </div>`;
+  try{
+    await jpost('/api/search', {q});
+    if(_searchTimer) clearInterval(_searchTimer);
+    _searchTimer = setInterval(checkSearchStatus, 2000);
+    checkSearchStatus();
+  }catch(e){box.innerHTML='<div class="dim">提交搜索失败: '+esc(e)+'</div>'}
 }
 function esc(s){return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;')}
-function download(q){jpost('/api/add',{name:q}).then(()=>flash('已后台提交下载: '+q)).catch(e=>flash(e,false))}
-function download1080(q){jpost('/api/add',{name:q,allow1080:true}).then(()=>flash('已提交(允许1080p): '+q)).catch(e=>flash(e,false))}
-async function wishToTV(name){$('#showName').value=name;addShow()}
-async function wishToDL(name){jpost('/api/add',{name}).then(()=>flash('已提交下载: '+name)).catch(e=>flash(e,false))}
+function download(q){jpost('/api/add',{name:q}).then(()=>flash('已后台提交下载(优先4K): '+q)).catch(e=>flash(e,false))}
+function download1080(q){jpost('/api/add',{name:q,allow1080:true}).then(()=>flash('已提交(降级1080p): '+q)).catch(e=>flash(e,false))}
+async function wishTrack4K(name){try{await jpost('/api/wish',{name,kind:'auto'});flash('已登记心愿持续追踪4K: '+name);refresh()}catch(e){flash(e,false)}}
+async function wishToTV(name){showPage('lib');$('#showName').value=name;addShow()}
+async function wishToDL(name){jpost('/api/add',{name}).then(()=>flash('已提交下载(优先4K): '+name)).catch(e=>flash(e,false))}
+async function wishToDL1080(name){jpost('/api/add',{name,allow1080:true}).then(()=>flash('已提交(降级1080p): '+name)).catch(e=>flash(e,false))}
 function delWish(key){jpost('/api/wish/delete',{key}).then(refresh)}
+function delTask(key){if(confirm('确定要删除该任务记录吗？'))jpost('/api/task/delete',{key}).then(()=>{flash('已删除任务');refresh()}).catch(e=>flash(e,false))}
 
 async function refresh(){
   try{
@@ -276,25 +513,61 @@ async function refresh(){
     $('#wishList').innerHTML=keys.map(k=>{
       const w=wishes[k];
       const running=w.tasks&&w.tasks.some(t=>t.stage!=='done'&&t.stage!=='failed');
-      return `<tr><td><b>${esc(w.name)}</b> ${running?'<span class="tag nas">进行中</span>':''}
-        <div class="dim">${w.kind==='tv'?'剧集':w.kind==='movie'?'电影':'自动'} · ${new Date(w.added*1000).toLocaleDateString()}</div>
-        <div class="mt"><button class="mini" onclick="wishToTV('${esc(w.name)}')">📺 转追剧</button>
-        <button class="mini ghost" onclick="wishToDL('${esc(w.name)}')">⬇ 立即下载</button>
-        <button class="mini ghost" onclick="delWish('${esc(k)}')">✕</button></div></td></tr>`;
+      const isDone=w.status==='done'||(w.tasks&&w.tasks.length>0&&w.tasks.every(t=>t.stage==='done'));
+      let tagHtml='';
+      if(running) tagHtml='<span class="tag nas">下载推进中</span>';
+      else if(isDone) tagHtml='<span class="tag done">✓ 已完成入库</span>';
+      else if(w.waiting_note) tagHtml=`<span class="tag cloud">${esc(w.waiting_note)}</span>`;
+      return `<tr><td><b>${esc(w.name)}</b> ${tagHtml}
+        <div class="dim">${w.kind==='tv'?'剧集':w.kind==='movie'?'电影':'自动'} · 登记于 ${new Date(w.added*1000).toLocaleDateString()}</div>
+        <div class="mt">
+          ${w.kind==='tv'||w.kind==='auto'?`<button class="mini" onclick="wishToTV('${esc(w.name)}')">📺 转追剧</button>`:''}
+          <button class="mini" onclick="wishToDL('${esc(w.name)}')">⬇ 优先4K下载</button>
+          <button class="mini ghost" onclick="wishToDL1080('${esc(w.name)}')">⬇ 降级1080p</button>
+          <button class="mini ghost" onclick="delWish('${esc(k)}')">✕</button>
+        </div></td></tr>`;
     }).join('');
     // 追剧
     $('#showList').innerHTML=shows.map(s=>`<tr><td><b>${esc(s.name)}</b>
       <div class="dim">追至 S${String(s.last[0]).padStart(2,'0')}E${String(s.last[1]).padStart(2,'0')} · ${s.enabled!==false?'启用':'停用'}</div></td>
       <td style="text-align:right"><button class="mini ghost" onclick="rmShow('${esc(s.name)}')">移除</button></td></tr>`).join('');
+    // 总览里的追剧简报
+    $('#watchBrief').innerHTML=shows.length?shows.map(s=>
+      `<div class="item"><div class="t"><b>${esc(s.name)}</b> <span class="dim">S${String(s.last[0]).padStart(2,'0')}E${String(s.last[1]).padStart(2,'0')}</span></div></div>`).join(''):'暂无，去「片单」登记';
+    // 侧栏计数
+    $('#navCounts').textContent=`${keys.length}/${shows.length}`;
     // 任务
     const act=tasks.filter(t=>t.stage!=='done'&&t.stage!=='failed');
     const recent=tasks.filter(t=>t.stage==='done'||t.stage==='failed').slice(0,6);
     $('#taskEmpty').style.display=tasks.length?'none':'block';
     $('#taskList').innerHTML=act.concat(recent).map(t=>{
       let detail=t.error?`<span style="color:var(--bad)">${esc(t.error)}</span>`:'';
-      if(t.nas)t.nas.forEach(n=>{detail+=`<div>${esc(n.file)}<div class="bar"><i style="width:${n.percent||0}%"></i></div></div>`});
-      return `<tr><td>${esc(t.label||t.kind)}</td><td><span class="tag ${t.stage}">${t.stage}</span></td><td>${detail||'<span class=dim>-</span>'}</td></tr>`;
+      if(t.nas && t.nas.length){
+        t.nas.forEach(n=>{
+          const p = Math.round(n.percent || 0);
+          detail+=`<div style="display:flex;align-items:center;gap:8px">
+            <div class="bar" style="flex:1"><i style="width:${p}%"></i></div>
+            <span class="dim" style="font-size:12px;min-width:38px;text-align:right">${p}%</span>
+          </div>`;
+        });
+      } else if(t.stage==='cloud'){
+        detail='<span class="dim">网盘云下载中…</span>';
+      } else if(t.stage==='done'){
+        detail='<span class="dim" style="color:var(--flash-ok-tx)">✓ 已完成入库</span>';
+      }
+      return `<tr>
+        <td><b>${esc(t.label||t.kind)}</b></td>
+        <td><span class="tag ${t.stage}">${t.stage}</span></td>
+        <td>${detail||'<span class=dim>-</span>'}</td>
+        <td style="text-align:right"><button class="mini ghost" title="删除任务" onclick="delTask('${esc(t.key)}')">✕</button></td>
+      </tr>`;
     }).join('');
+    // 目录路径设置回填
+    if(!$('#cfgMediaRoot').dataset.init){
+      $('#cfgMediaRoot').value = cfg.media_root || '/vol3/1000/媒体库2';
+      $('#cfgCloudRoot').value = cfg.cloud_root || '自动下载';
+      ['#cfgMediaRoot','#cfgCloudRoot'].forEach(k=>$(k).dataset.init='1');
+    }
     // 下载节奏设置(仅在未编辑时回填, 避免覆盖用户正在改的值)
     if(!$('#cfgBatch').dataset.init){
       $('#cfgBatch').value=cfg.batch_size; $('#cfgGap').value=cfg.batch_interval_hours;
@@ -319,22 +592,61 @@ async function refresh(){
       ['#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax','#fqLang']
         .forEach(k=>$(k).dataset.init='1');
     }
+    // ---- Jackett 配置回填 ----
+    if(!$('#cfgJtUrl').dataset.init){
+      $('#cfgJtUrl').value = cfg.jackett_url || '';
+      $('#cfgJtKey').value = cfg.jackett_apikey || '';
+      $('#cfgJtPath').value = cfg.jackett_config || '';
+      ['#cfgJtUrl','#cfgJtKey','#cfgJtPath'].forEach(k=>$(k).dataset.init='1');
+    }
     // 搜索周期状态
     $('#cfgSearchNote').innerHTML = cfg._search_due
       ? `🔍 ${esc(cfg._search_note||'')}`
       : `⏳ ${esc(cfg._search_note||'')}`;
-    // 排队中的集数
+    // 排队中的集数与电影
     const wkeys=Object.keys(waiting||{});
     $('#waiting').innerHTML = wkeys.length
-      ? wkeys.map(n=>{const eps=Object.entries(waiting[n]||{}).map(([e,r])=>`${e} <span class="dim">(${esc(r)})</span>`).join(', ');
-                      return `<div class="item"><div class="t"><b>${esc(n)}</b> — ${eps}</div></div>`}).join('')
+      ? wkeys.map(n=>{
+          const val = waiting[n];
+          if(typeof val === 'string'){
+            return `<div class="item"><div class="t"><b>${esc(n)}</b> <span class="dim">(${esc(val)})</span></div></div>`;
+          }
+          const eps=Object.entries(val||{}).map(([e,r])=>`${e} <span class="dim">(${esc(r)})</span>`).join(', ');
+          return `<div class="item"><div class="t"><b>${esc(n)}</b> — ${eps}</div></div>`;
+        }).join('')
       : '暂无';
-
-    // 事件
-    $('#events').textContent=events.map(l=>l.trim()).join('\n')||'无';
   }catch(e){flash('刷新失败: '+e,false)}
 }
+const LOG_TIPS = {
+  events: '💡 <b>关键动作日志 (events.log)</b>：专门记录高价值的业务里程碑，如「云任务添加成功」、「开始 NAS 下载并指定存储路径」、「中文字幕下载与转码匹配」、「任务全部完成」等核心事件。',
+  run: '💡 <b>调度与搜索日志 (run.log)</b>：系统后台核心进程的完整调试跟踪，包含后台 30 秒轮询推进明细、多索引器搜索命中与打分、以及网络/接口排错信息。',
+  cron: '💡 <b>定时唤醒日志 (cron.log)</b>：记录系统通过 Linux crontab 每小时定时唤醒 gy_autodl run 的标准输出与耗时记录。',
+  web: '💡 <b>网页操作日志 (webjobs.log)</b>：记录通过 Web 控制台点击「立即下载」或后台异步搜索时所触发的独立子进程输出。'
+};
+
+function onLogSrcChange(){
+  const src = $('#logSrc').value;
+  $('#logHelp').innerHTML = LOG_TIPS[src] || '';
+  refreshLog();
+}
+
+async function refreshLog(){
+  const box=$('#events');
+  if(!box.textContent || box.textContent==='加载中…') box.textContent='加载中…';
+  try{
+    const src=$('#logSrc').value, lines=$('#logLines').value;
+    $('#logHelp').innerHTML = LOG_TIPS[src] || '';
+    const d=await jget(`/api/logs?src=${src}&lines=${lines}`);
+    box.textContent=(d.tail||[]).join('\n')||'（暂无日志）';
+    $('#logMeta').textContent=`${d.file} · ${d.lines} 行`;
+  }catch(e){box.textContent='加载失败: '+e}
+}
+// 事件源跟随 15s 轮询自动刷新；其它源只在手动/切换时刷新
+const _refresh=refresh;
+refresh=async function(){await _refresh();
+  if($('#logSrc').value==='events'&&document.querySelector('#page-log.on')) await refreshLog();}
 refresh();setInterval(refresh,15000);
+checkSearchStatus();
 </script>
 </body>
 </html>

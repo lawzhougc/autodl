@@ -14,9 +14,14 @@ gy_autodl — fnOS 自动追剧/电影下载工作流
   sub <视频文件>               手动补字幕
 配置: config.json / shows.json / state.json (与本文件同目录)
 """
-import argparse, fcntl, html as html_mod, io, json, os, re, socket, subprocess, sys, time, zipfile
+import argparse, html as html_mod, io, json, os, re, socket, subprocess, sys, time, zipfile
+import hashlib, gzip
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 import urllib.request, urllib.parse, urllib.error
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -103,6 +108,20 @@ def save_cfg(updates):
     return CFG
 SHOWS_F = os.path.join(DATA, "shows.json")
 STATE_F = os.path.join(DATA, "state.json")
+WISH_F = os.path.join(DATA, "wishlist.json")
+
+def extract_infohash(s):
+    """从磁链或任意字符串中提取 40位 Hex 或 32位 Base32 的 BitTorrent infohash"""
+    if not s: return ""
+    m = re.search(r"\b([A-Fa-f0-9]{40})\b", s)
+    if m: return m.group(1).upper()
+    m2 = re.search(r"btih:([A-Za-z2-7]{32})\b", s, re.I)
+    if m2: return m2.group(1).upper()
+    if "btih:" in s.lower():
+        try:
+            return s.split("btih:", 1)[1].split("&")[0].split("/")[0].upper()
+        except Exception: pass
+    return ""
 
 # ---------------------------------------------------------------- HTTP
 class MagnetRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -168,28 +187,35 @@ def gy_find(name, pid):
     return None
 
 def gy_ensure_path(names, root=""):
-    pid = root
+    pid = root or ""
     for raw_n in names:
         n = sanitize(raw_n)
         if not n: continue
         fid = gy_find(n, pid)
         if not fid:
-            # 兼容处理: 飞牛光鸭官方原版 create-folder 接收 name，但其内部 client.py 请求云端 API 规范不同版本可能要求 dirName。
-            # 若创建子目录因接口差异报错(如“文件夹名不能为空”)，降级回退到当前已存在的父目录 pid，绝不阻断磁力任务的正常添加与下载！
             created = False
             err_msg = ""
             for payload in [{"name": n, "dirName": n, "parentId": pid}, {"dirName": n, "parentId": pid}, {"name": n, "parentId": pid}]:
                 try:
                     res = gy_post("/api/create-folder", payload, timeout=30)
-                    if isinstance(res, dict) and res.get("code") not in (0, None):
-                        err_msg = res.get("msg") or f"错误码 {res.get('code')}"
+                    if isinstance(res, dict):
+                        if res.get("code") in (0, None):
+                            created = True
+                            new_fid = (res.get("data") or {}).get("fileId") or res.get("fileId")
+                            if new_fid:
+                                fid = new_fid
+                                break
+                        else:
+                            err_msg = res.get("msg") or f"错误码 {res.get('code')}"
                     else:
                         created = True
                         break
                 except Exception as e:
                     err_msg = str(e)
             
-            fid = gy_find(n, pid)
+            if not fid:
+                time.sleep(0.5)
+                fid = gy_find(n, pid)
             if not fid:
                 if err_msg:
                     log(f"⚠️ 网盘创建子目录 [{n}] 失败 ({err_msg})，自动降级挂载至上级目录 (ID: {pid or '根目录'}) 继续下载")
@@ -214,10 +240,10 @@ def gy_add_magnet(url, parent_id, file_indexes=None, new_name=None):
     if file_indexes: body["fileIndexes"] = file_indexes
     if new_name: body["newName"] = sanitize(new_name)[:80]
     r = gy_post("/api/cloud-add/magnet", body, timeout=90)
-    tid = (r.get("data") or {}).get("taskId")
+    tid = (r.get("data") or {}).get("taskId") or r.get("taskId")
     if not tid:
         raise RuntimeError(f"云任务创建失败: {json.dumps(r, ensure_ascii=False)[:300]}")
-    return tid
+    return str(tid)
 
 def gy_cloud_tasks(pages=2):
     out = []
@@ -235,7 +261,11 @@ def gy_cloud_tasks(pages=2):
 def gy_download_url(fid): return gy_get(f"/api/download-url?fileId={fid}", timeout=30).get("signedURL")
 
 def gy_nas_start(fid, fname, target_dir):
-    return gy_post("/api/download-task", {"fileId": fid, "fileName": fname, "targetDir": target_dir}, timeout=60)["taskId"]
+    res = gy_post("/api/download-task", {"fileId": fid, "fileName": fname, "targetDir": target_dir}, timeout=60)
+    tid = (res.get("data") or {}).get("taskId") or res.get("taskId")
+    if not tid:
+        raise RuntimeError(f"NAS下载任务创建失败: {json.dumps(res, ensure_ascii=False)[:300]}")
+    return str(tid)
 
 def gy_cloud_task_delete(task_id, delete_file=False):
     """从光鸭云任务列表中删除离线任务"""
@@ -253,7 +283,30 @@ def gy_transfer_delete(task_id, delete_file=False):
         log(f"删除光鸭传输任务 {task_id} 异常: {e}")
         return None
 
-def gy_transfers(): return gy_get("/api/transfers", timeout=30)
+def gy_transfers():
+    """获取 NAS 下载传输状态，统一标准化映射为 {str(taskId): item_dict}"""
+    try:
+        raw = gy_get("/api/transfers", timeout=30)
+    except Exception as e:
+        log(f"获取传输列表失败: {e}")
+        return {}
+    if isinstance(raw, dict):
+        if "list" in raw and isinstance(raw["list"], list):
+            return {str(item.get("taskId")): item for item in raw["list"] if isinstance(item, dict) and item.get("taskId")}
+        if "data" in raw:
+            d = raw["data"]
+            if isinstance(d, list):
+                return {str(item.get("taskId")): item for item in d if isinstance(item, dict) and item.get("taskId")}
+            if isinstance(d, dict) and "list" in d and isinstance(d["list"], list):
+                return {str(item.get("taskId")): item for item in d["list"] if isinstance(item, dict) and item.get("taskId")}
+            if isinstance(d, dict):
+                return {str(k): v for k, v in d.items() if isinstance(v, dict)}
+        if "tasks" in raw and isinstance(raw["tasks"], list):
+            return {str(item.get("taskId")): item for item in raw["tasks"] if isinstance(item, dict) and item.get("taskId")}
+        return {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+    elif isinstance(raw, list):
+        return {str(item.get("taskId")): item for item in raw if isinstance(item, dict) and item.get("taskId")}
+    return {}
 
 # ---------------------------------------------------------------- Jackett
 def find_jackett_config():
@@ -331,31 +384,41 @@ def jt_key():
     )
 
 def jackett_search(query, category=None):
-    """并行搜索5索引器 → 标准化结果列表"""
+    """并行搜索索引器 → 标准化结果列表"""
     key = jt_key()
     jt_url = (CFG.get("jackett_url") or JT).rstrip("/")
+    timeout = min(30, int(CFG.get("search_timeout", 30)))
     def one(idx):
         url = (f"{jt_url}/api/v2.0/indexers/{idx}/results?apikey={key}"
                + (f"&Category={category}" if category else "")
                + "&Query=" + urllib.parse.quote(query))
         try:
-            with urllib.request.urlopen(url, timeout=CFG["search_timeout"] + 15) as r:
+            with urllib.request.urlopen(url, timeout=timeout) as r:
                 return idx, json.load(r).get("Results") or []
         except Exception as e:
             return idx, f"{type(e).__name__}: {e}"
     out = []
-    with ThreadPoolExecutor(min(5, len(CFG["indexers"]))) as ex:
-        for idx, res in ex.map(one, CFG["indexers"]):
-            if isinstance(res, str):
-                log(f"  索引器 {idx} 失败: {res}"); continue
-            for r in res:
-                out.append({
-                    "idx": idx, "title": r.get("Title") or "",
-                    "size": int(r.get("Size") or 0), "seeders": int(r.get("Seeders") or 0),
-                    "magnet": r.get("MagnetUri") or "", "link": r.get("Link") or "",
-                    "infohash": (r.get("InfoHash") or "").upper(),
-                    "pub": r.get("PublishDate") or "",
-                })
+    indexers = CFG.get("indexers", [])
+    if indexers:
+        with ThreadPoolExecutor(min(8, len(indexers))) as ex:
+            futures = {ex.submit(one, idx): idx for idx in indexers}
+            for fut in as_completed(futures):
+                idx, res = fut.result()
+                if isinstance(res, str):
+                    log(f"  索引器 {idx} 失败: {res}")
+                    continue
+                for r in res:
+                    ih = (r.get("InfoHash") or "").upper()
+                    mag = r.get("MagnetUri") or ""
+                    if not ih and mag:
+                        ih = extract_infohash(mag)
+                    out.append({
+                        "idx": idx, "title": r.get("Title") or "",
+                        "size": int(r.get("Size") or 0), "seeders": int(r.get("Seeders") or 0),
+                        "magnet": mag, "link": r.get("Link") or "",
+                        "infohash": ih,
+                        "pub": r.get("PublishDate") or "",
+                    })
     # 原生源(不走 Jackett): bt4g(走 CF 豁免的 RSS 接口)
     if "bt4g" in CFG.get("native_sources", []):
         try:
@@ -373,7 +436,7 @@ def bt4g_search(query):
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"})
-    with urllib.request.urlopen(req, timeout=CFG["search_timeout"]) as r:
+    with urllib.request.urlopen(req, timeout=CFG.get("search_timeout", 30)) as r:
         xml = r.read().decode("utf-8", "ignore")
     out = []
     for item in re.findall(r"<item>(.*?)</item>", xml, re.S):
@@ -382,8 +445,8 @@ def bt4g_search(query):
             return html_mod.unescape(m.group(1).strip()) if m else ""
         title = tag("title")
         link = tag("link")
-        m = re.search(r"btih:([A-Fa-f0-9]{40})", link)
-        if not title or not m:
+        ih = extract_infohash(link)
+        if not title or not ih:
             continue
         desc = tag("description")
         dm = re.search(r"<br\s*/?>([0-9.]+)\s*(GB|MB|KB)", desc, re.I)
@@ -393,7 +456,7 @@ def bt4g_search(query):
             size = int(float(dm.group(1)) * mult)
         # RSS 不含做种数 → 给 0, 排序时靠其他索引器补充
         out.append({"idx": "bt4g", "title": title, "size": size, "seeders": 0,
-                    "magnet": link, "link": "", "infohash": m.group(1).upper(),
+                    "magnet": link, "link": "", "infohash": ih,
                     "pub": tag("pubDate")})
     return out
 
@@ -636,31 +699,52 @@ def ffprobe_streams(path):
         return []
 
 def pick_embedded_sub(video_path):
-    """选最佳内嵌字幕流: zh > en > 其他; 返回 {index, lang, codec} 或 None"""
+    """选最佳内嵌字幕流: 双语中英 > 简体中文 > 繁体中文 > 其它中文 > 英文; 返回 {index, lang, codec} 或 None"""
     streams = ffprobe_streams(video_path)
     subs = [s for s in streams if s.get("codec_type") == "subtitle"
             and s.get("codec_name") not in ("hdmv_pgs_subtitle", "dvd_subtitle", "subrip_png")]
     if not subs:
         return None
     def score(s):
-        lang = (s.get("tags") or {}).get("language", "").lower()
-        title = ((s.get("tags") or {}).get("title") or "").lower()
-        zh = lang in ("zh", "chi", "zho", "chs", "cht") or "简" in title or "繁" in title or "中" in title
-        en = lang in ("en", "eng")
-        return (0 if zh else (1 if en else 2), "sdh" in title, 0 if s.get("codec_name") == "subrip" else 1)
+        lang = ((s.get("tags") or {}).get("language") or "").lower()
+        title = (((s.get("tags") or {}).get("title")) or "").lower()
+        zh_tags = ("zh", "chi", "zho", "chs", "cht", "sc", "tc", "chinese", "mandarin", "cantonese")
+        zh = any(t in lang for t in zh_tags) or any(k in title for k in ("简", "繁", "中", "chs", "cht", "chi", "chinese", "双语", "中英"))
+        bilingual = any(k in title for k in ("双语", "中英", "chs&eng", "cht&eng", "cn&en", "bilingual"))
+        chs = any(k in title for k in ("简", "chs", "gb", "sc")) or lang in ("chs", "sc")
+        cht = any(k in title for k in ("繁", "cht", "big5", "tc")) or lang in ("cht", "tc")
+        en = any(t in lang for t in ("en", "eng", "english")) or "eng" in title
+        if zh:
+            l_score = 0 if bilingual else (1 if chs else (2 if cht else 3))
+        elif en:
+            l_score = 4
+        else:
+            l_score = 5
+        is_ass = 0 if s.get("codec_name") in ("ass", "ssa") else 1
+        return (l_score, "sdh" in title, is_ass)
     subs.sort(key=score)
     best = subs[0]
-    lang = (best.get("tags") or {}).get("language", "unk").lower()
-    lang = {"zh": "zh", "chi": "zh", "zho": "zh", "chs": "zh", "cht": "zh",
-            "en": "en", "eng": "en"}.get(lang, "unk")
-    return {"index": best["index"], "lang": lang, "codec": best.get("codec_name")}
+    best_score = score(best)[0]
+    if best_score > 4:
+        return None
+    lang_res = "zh" if best_score < 4 else "en"
+    return {"index": best["index"], "lang": lang_res, "codec": best.get("codec_name", "")}
 
 def extract_embedded_sub(video_path, stream_index, dst_path):
-    codec = "ass" if dst_path.lower().endswith(".ass") else "srt"
-    r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", video_path,
-                        "-map", f"0:{stream_index}", "-c", codec, dst_path],
-                       capture_output=True, timeout=600)
-    return r.returncode == 0 and os.path.exists(dst_path) and os.path.getsize(dst_path) > 200
+    if dst_path.lower().endswith(".ass"):
+        cmd = ["ffmpeg", "-y", "-v", "error", "-i", video_path,
+               "-map", f"0:{stream_index}", "-c:s", "copy", dst_path]
+    else:
+        cmd = ["ffmpeg", "-y", "-v", "error", "-i", video_path,
+               "-map", f"0:{stream_index}", "-c:s", "subrip", dst_path]
+    r = subprocess.run(cmd, capture_output=True, timeout=600)
+    if r.returncode == 0 and os.path.exists(dst_path) and os.path.getsize(dst_path) > 200:
+        return True
+    # 回退 copy
+    cmd_fallback = ["ffmpeg", "-y", "-v", "error", "-i", video_path,
+                    "-map", f"0:{stream_index}", "-c", "copy", dst_path]
+    r2 = subprocess.run(cmd_fallback, capture_output=True, timeout=600)
+    return r2.returncode == 0 and os.path.exists(dst_path) and os.path.getsize(dst_path) > 200
 
 def subhd_session():
     """SubHD 登录会话(config.json 里 subhd_email/subhd_password 可选配置)"""
@@ -787,36 +871,139 @@ def ass_to_srt(data, workdir):
     if os.path.exists(srt): os.unlink(srt)
     return None
 
+def shooter_file_hash(path):
+    """计算射手网(Shooter)复合特征哈希: 4个4KB数据块的MD5拼接"""
+    try:
+        size = os.path.getsize(path)
+        if size < 8192:
+            return None
+        offsets = [4096, int(size/3*2), int(size/3), size - 8192]
+        hashes = []
+        with open(path, 'rb') as f:
+            for offset in offsets:
+                f.seek(offset)
+                block = f.read(4096)
+                hashes.append(hashlib.md5(block).hexdigest())
+        return ';'.join(hashes)
+    except Exception:
+        return None
+
+def shooter_fetch(video_path):
+    """通过射手网开放 API 获取中文字幕。无需登录，根据视频特征哈希直接秒级精准匹配。"""
+    try:
+        fhash = shooter_file_hash(video_path)
+        if not fhash: return None
+        fname = os.path.basename(video_path)
+        url = "https://www.shooter.cn/api/subapi.php"
+        data = urllib.parse.urlencode({
+            "filehash": fhash,
+            "pathinfo": fname,
+            "format": "json"
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"User-Agent": "ShooterPlayer"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+        if not raw or raw.strip() == b"\xff" or raw.strip() == b"":
+            return None
+        res_list = json.loads(raw.decode("utf-8", "ignore"))
+        if not isinstance(res_list, list) or not res_list:
+            return None
+        candidates = []
+        for item in res_list:
+            desc = (item.get("Desc") or "").lower()
+            files = item.get("Files") or []
+            for f in files:
+                link = f.get("Link")
+                ext = (f.get("Ext") or "srt").lower()
+                if link:
+                    candidates.append({"desc": desc, "ext": ext, "link": link})
+        if not candidates:
+            return None
+        def cand_score(c):
+            d = c["desc"]
+            bilingual = any(x in d for x in ["中英", "双语", "chs&eng", "cht&eng", "bilingual"])
+            chs = any(x in d for x in ["简", "chs", "gb", "sc", "chinese"])
+            cht = any(x in d for x in ["繁", "cht", "big5", "tc"])
+            lang_rank = 0 if bilingual else (1 if chs else (2 if cht else 3))
+            fmt_rank = 0 if c["ext"] in ("ass", "ssa") else 1
+            return (lang_rank, fmt_rank)
+        candidates.sort(key=cand_score)
+        best = candidates[0]
+        req_dl = urllib.request.Request(best["link"], headers={"User-Agent": "ShooterPlayer"})
+        with urllib.request.urlopen(req_dl, timeout=25) as resp_dl:
+            sub_bytes = resp_dl.read()
+        if sub_bytes.startswith(b"\x1f\x8b"):
+            sub_bytes = gzip.decompress(sub_bytes)
+        data_clean, ext_clean = extract_sub_archive(sub_bytes)
+        if data_clean:
+            return data_clean, ext_clean
+        return sub_bytes, best["ext"]
+    except Exception as e:
+        log(f"射手网 (Shooter) 字幕查询异常: {e}")
+        return None
+
 def find_subtitle(video_path, hint):
-    """字幕策略: 1)已有 2)内嵌zh提取 3)SubHD中文(配置账号) 4)内嵌en兜底"""
+    """字幕策略:
+    1) 已有同名外部字幕跳过
+    2) 内嵌中文字幕 (双语 > 简中 > 繁中) 提取为 .zh.ass / .zh.srt
+    3) 射手网开放 API (免账号视频特征哈希匹配，高精度中文字幕)
+    4) SubHD 下载中文字幕 (若配置账号)
+    5) 内嵌英文字幕提取兜底 (.en.srt)
+    """
     base = os.path.splitext(video_path)[0]
     if any(os.path.exists(p) for p in [f"{base}.zh.ass", f"{base}.zh.srt", f"{base}.chs.srt",
                                         f"{base}.cht.srt", f"{base}.srt", f"{base}.ass"]):
         return ["已有"]
-    # 内嵌中文字幕优先(快且准); 输出 ass(保留样式), 失败再退 srt
+
+    # 2. 内嵌中文字幕优先(快且准); ass 保留样式, 失败再退 srt
     pick = pick_embedded_sub(video_path)
     if pick and pick["lang"] == "zh":
-        for ext_out in ("ass", "srt"):
+        target_ext = "ass" if pick.get("codec") in ("ass", "ssa") else "srt"
+        for ext_out in (target_ext, "srt" if target_ext != "srt" else "ass"):
             dst = f"{base}.zh.{ext_out}"
             if extract_embedded_sub(video_path, pick["index"], dst):
-                os.chmod(dst, 0o777)
+                try: os.chmod(dst, 0o666)
+                except Exception: pass
                 return [f"内嵌提取(zh) → {os.path.basename(dst)}"]
-    # SubHD 下载中文字幕(账号配置后); 多候选逐个试(有些包是 .sup 图形字幕无文本)
+
+    # 3. 射手网开放 API (免账号、零配置、依据视频精确哈希下载)
+    sh_res = shooter_fetch(video_path)
+    if sh_res:
+        data, ext = sh_res
+        dst = f"{base}.zh.{ext}"
+        try:
+            with open(dst, "wb") as f:
+                f.write(data)
+            try: os.chmod(dst, 0o666)
+            except Exception: pass
+            return [f"射手网(Shooter) → {os.path.basename(dst)}"]
+        except Exception as e:
+            log(f"写入射手网字幕失败: {e}")
+
+    # 4. SubHD 下载中文字幕(账号配置后); 多候选逐个试
     op = subhd_session()
     if op:
         for raw in subhd_fetch(op, hint, limit=3):
             data, ext = extract_sub_archive(raw)
             if data:
                 dst = f"{base}.zh.{ext}"
-                open(dst, "wb").write(data); os.chmod(dst, 0o777)
-                return [f"SubHD → {os.path.basename(dst)}"]
-    # 兜底: 内嵌英文字幕
+                try:
+                    with open(dst, "wb") as f: f.write(data)
+                    try: os.chmod(dst, 0o666)
+                    except Exception: pass
+                    return [f"SubHD → {os.path.basename(dst)}"]
+                except Exception as e:
+                    log(f"写入 SubHD 字幕失败: {e}")
+
+    # 5. 兜底: 内嵌英文字幕
     if pick and pick["lang"] == "en":
         dst = f"{base}.en.srt"
         if extract_embedded_sub(video_path, pick["index"], dst):
-            os.chmod(dst, 0o777)
-            return [f"内嵌提取(en) → {os.path.basename(dst)}"]
-    return ["未找到"]
+            try: os.chmod(dst, 0o666)
+            except Exception: pass
+            return [f"内嵌提取(en兜底) → {os.path.basename(dst)}"]
+
+    return ["未找到中文字幕"]
 
 # ---------------------------------------------------------------- 状态
 def state(): return load_json(STATE_F, {"tasks": {}, "processed": [], "waiting": {}})
@@ -908,7 +1095,7 @@ def submit(res, label, parent_path, wanted_eps=None, min_mb=None):
 # ---------------------------------------------------------------- 推进任务
 def phase_cloud(st):
     """stage=cloud: 查云任务, 完成则启动 NAS 下载"""
-    tasks = {t.get("taskId"): t for t in gy_cloud_tasks()}
+    tasks = {str(t.get("taskId")): t for t in gy_cloud_tasks() if t.get("taskId") is not None}
     for k, t in list(st["tasks"].items()):
         if t["stage"] != "cloud": continue
         ct = tasks.get(str(t.get("cloudTaskId")))
@@ -916,7 +1103,7 @@ def phase_cloud(st):
             found = [c for c in tasks.values()
                      if t.get("hash") and t["hash"] in (c.get("res") or "").upper()]
             ct = found[0] if found else None
-            if ct: t["cloudTaskId"] = ct.get("taskId")
+            if ct: t["cloudTaskId"] = str(ct.get("taskId"))
         if not ct:
             if time.time() - t.get("added", 0) > 86400:
                 t["stage"] = "failed"; t["error"] = "云任务列表中未找到(24h)"
@@ -930,7 +1117,12 @@ def phase_cloud(st):
             continue
         # 完成判定: progress 可能是 None(新版API不下发) → 以目录内或文件自身是否可下载为准
         prog = ct.get("progress")
-        done = (int(prog) >= 100) if prog is not None else False
+        done = False
+        if prog is not None:
+            try:
+                done = float(str(prog).rstrip("%").strip()) >= 100.0
+            except Exception:
+                done = False
         fid = ct.get("fileId")
         if not done and fid:
             try:
@@ -971,6 +1163,10 @@ def walk_videos(fid, depth=0, default_name=None, default_size=0):
 def start_nas_for_task(st, k, t, fallback_name=None, fallback_size=0):
     vids = walk_videos(t["cloudFileId"], default_name=fallback_name, default_size=fallback_size)
     if not vids:
+        t["empty_cloud_retries"] = t.get("empty_cloud_retries", 0) + 1
+        if t["empty_cloud_retries"] <= 3:
+            log(f"⚠️ 云盘暂未索引到视频文件，等待下轮重试({t['empty_cloud_retries']}/3): {t['label']}")
+            return
         t["stage"] = "failed"; t["error"] = "云目录中无视频文件"
         event(f"失败 {t['label']}: 云目录无视频"); return
     # 选片: 单集任务取最大文件; 整季/多文件取全部>min
@@ -1043,13 +1239,21 @@ def finish_task(st, k, t):
         hint = t.get("sub_hint") or os.path.splitext(os.path.basename(n["file"]))[0][:40]
         r = find_subtitle(n["file"], hint)
         subs.append(f"{os.path.basename(n['file'])}: {','.join(r)}")
-    if t["kind"] == "tv" and t.get("show"):
-        for sh in shows():
+    if t.get("kind") == "tv" and t.get("show"):
+        cur_shows = shows()
+        for sh in cur_shows:
             if show_key(sh["name"]) == t["show"]:
                 s, e = t.get("ep", (0, 0))
                 if (s, e) > tuple(sh.get("last", (0, 0))):
                     sh["last"] = [s, e]
-                    save_shows(shows())
+                    save_shows(cur_shows)
+                break
+    elif t.get("kind") == "movie":
+        wl = load_json(WISH_F, {})
+        for wk, w in wl.items():
+            if show_key(w.get("name", "")) == show_key(t.get("label", "")) or wk == show_key(t.get("label", "")):
+                w["status"] = "done"
+                save_json(WISH_F, wl)
                 break
     st["waiting"].pop(t.get("show") or "", None)
     t["done_at"] = time.time()
@@ -1058,13 +1262,20 @@ def finish_task(st, k, t):
         try: gy_post("/api/cloud-add/delete", {"taskId": t["cloudTaskId"], "deleteFile": True})
         except Exception: pass
 
-# ---------------------------------------------------------------- 搜新集
+# ---------------------------------------------------------------- 搜新集与追踪
 def search_new_episodes(st, dry=False):
     submitted = 0
-    for sh in shows():
+    cur_shows = shows()
+    shows_changed = False
+    for sh in cur_shows:
         if not sh.get("enabled", True): continue
         name = show_key(sh["name"])
         last_s, last_e = tuple(sh.get("last", [0, 0]))
+        if last_s == 0:
+            last_s = 1
+            last_e = 0
+            sh["last"] = [1, 0]
+            shows_changed = True
         try:
             results = jackett_search(f"{sh['name']} S{last_s:02d}", category=5000)
         except Exception as e:
@@ -1086,6 +1297,34 @@ def search_new_episodes(st, dry=False):
         queued = {t.get("ep", (0, 0))[1] for t in st["tasks"].values()
                   if t.get("show") == name and t.get("stage") in ("cloud", "nas")}
         wanted = [e for e in wanted if e not in queued]
+
+        # 跨季探测: 若当前季无新集且已有进度(last_e > 0)，自动探测下一季第1集上线
+        if not wanted and last_e > 0:
+            next_s = last_s + 1
+            try:
+                next_results = jackett_search(f"{sh['name']} S{next_s:02d}", category=5000)
+                next_by_ep = {}
+                for r in next_results:
+                    p = parse_title(r["title"])
+                    if p["bad"] or p["season"] != next_s or not p["ep"]: continue
+                    if p["quality"] not in wanted_qualities(): continue
+                    if not format_allowed(p) or not size_ok(r["size"] / (1024 ** 3)): continue
+                    if not lang_ok(p.get("langs") or set()): continue
+                    r["_p"] = p
+                    if p["ep"] not in next_by_ep or rank_key(r) < rank_key(next_by_ep[p["ep"]]):
+                        next_by_ep[p["ep"]] = r
+                next_wanted = [e for e in sorted(next_by_ep) if not already_have_video(name, next_s, e)]
+                if next_wanted:
+                    log(f"🎉 检测到 {name} 新一季上线 (S{next_s:02d}E{next_wanted[0]:02d})，自动转入第 {next_s} 季追踪")
+                    last_s = next_s
+                    last_e = 0
+                    sh["last"] = [next_s, 0]
+                    shows_changed = True
+                    by_ep = next_by_ep
+                    wanted = next_wanted
+            except Exception as ex_next:
+                log(f"跨季探测异常 {name}: {ex_next}")
+
         if not wanted:
             st["waiting"].pop(name, None)
             continue
@@ -1131,18 +1370,101 @@ def search_new_episodes(st, dry=False):
             try:
                 tid, magnet, vids = submit(r, label, [CFG["cloud_root"], name], wanted_eps={(last_s, e)})
                 k = f"t{int(time.time()*1000)}-{e}"
+                ih = extract_infohash(magnet)
                 st["tasks"][k] = {"kind": "tv", "show": name, "season": last_s, "ep": [last_s, e],
-                                  "label": label, "cloudTaskId": str(tid), "hash": magnet.upper().split("btih:")[-1].split("&")[0],
+                                  "label": label, "cloudTaskId": str(tid), "hash": ih,
                                   "nas_dir": os.path.join(CFG["media_root"], name),
                                   "sub_hint": f"{sh['name']} S{last_s:02d}E{e:02d}",
                                   "added": time.time(), "stage": "cloud", "wanted": [(last_s, e)]}
-                st["processed"].append(magnet.upper().split("btih:")[-1].split("&")[0])
+                if ih: st["processed"].append(ih)
                 submitted += 1
                 event(f"已提交 {label} ← {r['title'][:60]} ({r['idx']}, {r['seeders']}seeds)")
                 time.sleep(2)
             except Exception as ex:
                 log(f"提交失败 {label}: {ex}")
                 st["waiting"].setdefault(name, {})[f"S{last_s:02d}E{e:02d}"] = f"提交失败: {ex}"
+    if shows_changed and not dry:
+        save_shows(cur_shows)
+
+def search_movies(st, dry=False):
+    """周期追踪心愿单中未完成的电影：搜索 2160p 资源，上线即自动提交下载"""
+    wl = load_json(WISH_F, {})
+    if not wl: return
+    changed = False
+    submitted = 0
+    for key, item in list(wl.items()):
+        name = item.get("name", "").strip()
+        kind = item.get("kind", "auto")
+        if not name: continue
+        if kind == "tv" or is_tv_query(name): continue
+        if item.get("status") in ("done", "downloading"): continue
+
+        clean_name = show_key(name)
+        movie_dir = os.path.join(CFG["media_root"], "电影", clean_name)
+        if os.path.isdir(movie_dir):
+            vids = [f for f in os.listdir(movie_dir) if is_video(f)]
+            if vids:
+                item["status"] = "done"
+                changed = True
+                continue
+
+        in_tasks = any(t.get("kind") == "movie" and clean_name in show_key(t.get("label", ""))
+                       and t.get("stage") in ("cloud", "nas") for t in st["tasks"].values())
+        if in_tasks:
+            item["status"] = "downloading"
+            changed = True
+            continue
+
+        trans_title, _ = cn2en(name)
+        search_query = trans_title or name
+        try:
+            results = jackett_search(search_query, category=2000)
+        except Exception as e:
+            log(f"电影追踪搜索失败 {name}: {e}")
+            continue
+
+        best_4k = best_for_movie(results, CFG["wanted_quality"])
+        target_res = best_4k
+        if not target_res and "1080p" in (CFG.get("quality_fallback") or []):
+            target_res = best_for_movie(results, "1080p")
+
+        if not target_res:
+            st["waiting"][clean_name] = "未找到 4K 资源，等待上线中"
+            item["status"] = "waiting_4k"
+            changed = True
+            continue
+
+        if dry:
+            print(f"[dry] 电影 {clean_name} 匹配到: {target_res['title']} ({target_res['seeders']}seeds)")
+            continue
+
+        if submitted >= CFG.get("max_submit_per_run", 3):
+            log(f"电影 {clean_name}: 本轮提交已达上限，等下轮")
+            break
+
+        label = clean_release(target_res["title"])
+        try:
+            tid, magnet, vids = submit(target_res, label, [CFG["cloud_root"], "电影", clean_name])
+            k = f"t{int(time.time()*1000)}"
+            ih = extract_infohash(magnet)
+            st["tasks"][k] = {
+                "kind": "movie", "label": label, "cloudTaskId": str(tid),
+                "hash": ih, "nas_dir": movie_dir, "sub_hint": search_query[:40],
+                "added": time.time(), "stage": "cloud"
+            }
+            if ih: st["processed"].append(ih)
+            submitted += 1
+            item["status"] = "downloading"
+            changed = True
+            st["waiting"].pop(clean_name, None)
+            event(f"电影自动追踪提交: {clean_name} ← {target_res['title'][:60]} ({target_res['idx']})")
+            time.sleep(2)
+        except Exception as ex:
+            log(f"电影 {clean_name} 自动提交失败: {ex}")
+            st["waiting"][clean_name] = f"提交失败: {ex}"
+
+    if changed and not dry:
+        save_json(WISH_F, wl)
 
 def search_due(st):
     """判断本轮是否该跑「搜新集」。返回 (是否该跑, 说明)"""
@@ -1164,12 +1486,13 @@ def cycle(st, dry=False, search=True):
     if search:
         due, why = search_due(st)
         if due:
-            log(f"开始搜新集({why})")
+            log(f"开始搜新集与电影({why})")
             search_new_episodes(st, dry=dry)
+            search_movies(st, dry=dry)
             if not dry:
                 st["last_search"] = time.time()
         else:
-            log(f"跳过搜新集({why})")
+            log(f"跳过搜新集与电影({why})")
     # 清理 done>30天
     now = time.time()
     for k in [k for k, t in st["tasks"].items() if t["stage"] in ("done", "failed")
@@ -1178,6 +1501,42 @@ def cycle(st, dry=False, search=True):
 
 # ---------------------------------------------------------------- CLI
 def is_tv_query(t): return bool(RE_EP.search(t) or RE_SEASON.search(t))
+
+def prompt_or_fallback_1080(results, args, filter_fn=None):
+    """当 4K 资源不存在时，根据 --allow1080 配置或终端交互询问用户是否降级为 1080p"""
+    candidates = []
+    for r in results:
+        p = parse_title(r["title"])
+        if p["bad"] or p["quality"] != "1080p": continue
+        if filter_fn and not filter_fn(r): continue
+        r["_p"] = p
+        candidates.append(r)
+    candidates.sort(key=rank_key)
+    if not candidates:
+        return None
+
+    if getattr(args, "allow1080", False) or "1080p" in (CFG.get("quality_fallback") or []):
+        print(f"💡 未找到 2160p(4K) 资源，根据允许降级策略自动选用最佳 1080p: {candidates[0]['title'][:60]}")
+        return candidates[0]
+
+    if sys.stdin.isatty():
+        print("\n⚠️ 未找到 2160p(4K) 优质资源，检测到以下 1080p 候选资源：")
+        for i, c in enumerate(candidates[:5], 1):
+            sz = round(c["size"] / (1024*1024*1024), 2)
+            print(f"  [{i}] {c['title'][:66]} | {c['seeders']}做种 | {sz}GB | {c['idx']}")
+        try:
+            ans = input("\n是否降级下载最佳 1080p 资源？[Y/n/序号]: ").strip()
+            if ans == "" or ans.lower() in ("y", "yes"):
+                return candidates[0]
+            elif ans.isdigit() and 1 <= int(ans) <= len(candidates[:5]):
+                return candidates[int(ans) - 1]
+            else:
+                print("用户取消下载。")
+                sys.exit(2)
+        except (KeyboardInterrupt, EOFError):
+            print("\n已取消")
+            sys.exit(2)
+    return None
 
 def cmd_search(args):
     trans, meta = cn2en(args.title)
@@ -1230,25 +1589,27 @@ def cmd_add(args):
     m = RE_EP.search(title)
     st = state()
     if m:  # 单集
-
         s, e = int(m.group(1)), int(m.group(2))
         show_guess = re.split(r"\bS\d{1,2}E\d{1,3}\b", title, flags=re.I)[0]
         name = show_key(show_guess)
         results = jackett_search(title, category=5000)
         best = best_for_episode(results, s, e, CFG["wanted_quality"])
         if not best:
+            best = prompt_or_fallback_1080(results, args, lambda r: best_for_episode([r], s, e, "1080p"))
+        if not best:
             no4k_exit(results)
         print(f"提交: {name} S{s:02d}E{e:02d} ← {best['title'][:70]}")
         tid, magnet, vids = submit(best, f"{name} S{s:02d}E{e:02d}", [CFG["cloud_root"], name],
                                    wanted_eps={(s, e)})
         k = f"t{int(time.time()*1000)}"
+        ih = extract_infohash(magnet)
         st["tasks"][k] = {"kind": "tv", "show": name, "season": s, "ep": [s, e],
                           "label": f"{name} S{s:02d}E{e:02d}", "cloudTaskId": str(tid),
-                          "hash": magnet.upper().split("btih:")[-1].split("&")[0],
+                          "hash": ih,
                           "nas_dir": os.path.join(CFG["media_root"], name),
                           "sub_hint": f"{name} S{s:02d}E{e:02d}",
                           "added": time.time(), "stage": "cloud", "wanted": [(s, e)]}
-        st["processed"].append(magnet.upper().split("btih:")[-1].split("&")[0])
+        if ih: st["processed"].append(ih)
         save_state(st)
         event(f"已创建追剧云下载: {name} S{s:02d}E{e:02d}")
         print(f"云任务 {tid} 已创建, 之后 run/poll 会自动推进到NAS并补字幕")
@@ -1259,16 +1620,19 @@ def cmd_add(args):
         results = jackett_search(title, category=2000)
         best = best_for_movie(results, CFG["wanted_quality"])
         if not best:
+            best = prompt_or_fallback_1080(results, args, lambda r: best_for_movie([r], "1080p"))
+        if not best:
             no4k_exit(results)
         print(f"提交电影: {name} ← {best['title'][:70]}")
         label = clean_release(best["title"])
         tid, magnet, vids = submit(best, label, [CFG["cloud_root"], "电影", name])
         k = f"t{int(time.time()*1000)}"
+        ih = extract_infohash(magnet)
         st["tasks"][k] = {"kind": "movie", "label": label, "cloudTaskId": str(tid),
-                          "hash": magnet.upper().split("btih:")[-1].split("&")[0],
+                          "hash": ih,
                           "nas_dir": os.path.join(CFG["media_root"], "电影", name), "sub_hint": title[:40],
                           "added": time.time(), "stage": "cloud"}
-        st["processed"].append(magnet.upper().split("btih:")[-1].split("&")[0])
+        if ih: st["processed"].append(ih)
         save_state(st)
         event(f"已创建电影云下载: {label}")
         print(f"云任务 {tid} 已创建, 之后 run/poll 会自动推进到NAS并补字幕")
@@ -1289,7 +1653,7 @@ def cmd_addshow(args):
         print(f"(识别: {args.name} → {trans})")
         args.name = trans
     name = show_key(args.name)
-    last = [0, 0]
+    last = [1, 0]
     if not args.last and meta and meta.get("season"):
         last = [meta["season"], 0]
     if args.last:
@@ -1379,9 +1743,11 @@ def main():
     p = sub.add_parser("sub"); p.add_argument("file"); p.set_defaults(fn=cmd_sub)
     args = ap.parse_args()
     if args.cmd in ("run", "poll"):
-        lock = open("/tmp/gy_autodl.lock", "w")
+        lock_file = "/tmp/gy_autodl.lock" if os.path.exists("/tmp") else os.path.join(DATA, "autodl.lock")
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock = open(lock_file, "w")
+            if fcntl:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except Exception:
             log("已有 run 在执行, 跳过"); return
         args.fn(args)

@@ -120,7 +120,7 @@ a{color:var(--acc);text-decoration:none}
 
 <div class="grid2">
 <div class="card">
-  <h2>⏳ 排队中的集数</h2>
+  <h2>⏳ 排队中的剧集与电影</h2>
   <div id="waiting" class="dim">暂无</div>
 </div>
 <div class="card">
@@ -423,17 +423,30 @@ function renderSearchResults(q, d){
     <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 关闭结果</button>
   </div>`;
   if(d.recognized)h+=`<div class="dim mb">🀄 识别: ${esc(d.orig)} → <b>${esc(d.recognized)}</b></div>`;
-  if(d.best)h+=`<div class="item"><div class="t">★ 推荐: <b>${esc(d.best)}</b></div><button class="mini" onclick="download('${esc(q)}')">⬇ 下载推荐</button></div>`;
-  if(!d.q4k.length&&d.lo1080.length)h+='<div class="dim mt">无4K资源, 1080p候选:</div>';
-  d.q4k.forEach(r=>{
-    h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${r.langs&&r.langs.length?' · '+r.langs.join(',').toUpperCase():''}</span></div>
-    <button class="mini" onclick="download('${esc(q)}')">⬇ 推荐</button></div>`;
-  });
-  d.lo1080.forEach(r=>{
-    h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">1080p · ${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}</span></div>
-    <button class="mini ghost" onclick="download1080('${esc(q)}')">⬇ 1080p</button></div>`;
-  });
-  if(!d.q4k.length&&!d.lo1080.length)h+='<div class="dim">无可用资源</div>';
+  if(d.best)h+=`<div class="item" style="background:var(--hov);border-radius:8px;padding:8px 12px"><div class="t">★ 4K首选推荐: <b>${esc(d.best)}</b></div><button class="mini" onclick="download('${esc(q)}')">⬇ 下载4K推荐</button></div>`;
+  if(!d.q4k.length && d.lo1080.length){
+    h+=`<div class="item" style="background:var(--flash-err-bg);border:1px solid var(--bad);border-radius:8px;padding:10px 12px;margin-top:8px">
+      <div class="t" style="color:var(--bad)">⚠️ <b>未检索到 4K (2160p) 资源</b>，检测到 ${d.lo1080.length} 条优质 1080p 候选</div>
+      <div style="display:flex;gap:6px">
+        <button class="mini" style="background:var(--warn)" onclick="download1080('${esc(q)}')">⬇ 降级下载 1080p</button>
+        <button class="mini ghost" onclick="wishTrack4K('${esc(q)}')">⏳ 保持追踪4K</button>
+      </div>
+    </div>`;
+  }
+  if(d.q4k.length){
+    d.q4k.forEach(r=>{
+      h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${r.langs&&r.langs.length?' · '+r.langs.join(',').toUpperCase():''}</span></div>
+      <button class="mini" onclick="download('${esc(q)}')">⬇ 下载4K</button></div>`;
+    });
+  }
+  if(d.lo1080.length){
+    h+=`<div class="dim mt" style="font-weight:600">1080p 备选资源:</div>`;
+    d.lo1080.forEach(r=>{
+      h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">1080p · ${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}</span></div>
+      <button class="mini ghost" onclick="download1080('${esc(q)}')">⬇ 下载1080p</button></div>`;
+    });
+  }
+  if(!d.q4k.length&&!d.lo1080.length)h+='<div class="dim mt">未检索到可用资源</div>';
   box.innerHTML=h;
 }
 
@@ -479,10 +492,12 @@ async function doSearch(){
   }catch(e){box.innerHTML='<div class="dim">提交搜索失败: '+esc(e)+'</div>'}
 }
 function esc(s){return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;')}
-function download(q){jpost('/api/add',{name:q}).then(()=>flash('已后台提交下载: '+q)).catch(e=>flash(e,false))}
-function download1080(q){jpost('/api/add',{name:q,allow1080:true}).then(()=>flash('已提交(允许1080p): '+q)).catch(e=>flash(e,false))}
+function download(q){jpost('/api/add',{name:q}).then(()=>flash('已后台提交下载(优先4K): '+q)).catch(e=>flash(e,false))}
+function download1080(q){jpost('/api/add',{name:q,allow1080:true}).then(()=>flash('已提交(降级1080p): '+q)).catch(e=>flash(e,false))}
+async function wishTrack4K(name){try{await jpost('/api/wish',{name,kind:'auto'});flash('已登记心愿持续追踪4K: '+name);refresh()}catch(e){flash(e,false)}}
 async function wishToTV(name){showPage('lib');$('#showName').value=name;addShow()}
-async function wishToDL(name){jpost('/api/add',{name}).then(()=>flash('已提交下载: '+name)).catch(e=>flash(e,false))}
+async function wishToDL(name){jpost('/api/add',{name}).then(()=>flash('已提交下载(优先4K): '+name)).catch(e=>flash(e,false))}
+async function wishToDL1080(name){jpost('/api/add',{name,allow1080:true}).then(()=>flash('已提交(降级1080p): '+name)).catch(e=>flash(e,false))}
 function delWish(key){jpost('/api/wish/delete',{key}).then(refresh)}
 function delTask(key){if(confirm('确定要删除该任务记录吗？'))jpost('/api/task/delete',{key}).then(()=>{flash('已删除任务');refresh()}).catch(e=>flash(e,false))}
 
@@ -498,11 +513,19 @@ async function refresh(){
     $('#wishList').innerHTML=keys.map(k=>{
       const w=wishes[k];
       const running=w.tasks&&w.tasks.some(t=>t.stage!=='done'&&t.stage!=='failed');
-      return `<tr><td><b>${esc(w.name)}</b> ${running?'<span class="tag nas">进行中</span>':''}
-        <div class="dim">${w.kind==='tv'?'剧集':w.kind==='movie'?'电影':'自动'} · ${new Date(w.added*1000).toLocaleDateString()}</div>
-        <div class="mt"><button class="mini" onclick="wishToTV('${esc(w.name)}')">📺 转追剧</button>
-        <button class="mini ghost" onclick="wishToDL('${esc(w.name)}')">⬇ 立即下载</button>
-        <button class="mini ghost" onclick="delWish('${esc(k)}')">✕</button></div></td></tr>`;
+      const isDone=w.status==='done'||(w.tasks&&w.tasks.length>0&&w.tasks.every(t=>t.stage==='done'));
+      let tagHtml='';
+      if(running) tagHtml='<span class="tag nas">下载推进中</span>';
+      else if(isDone) tagHtml='<span class="tag done">✓ 已完成入库</span>';
+      else if(w.waiting_note) tagHtml=`<span class="tag cloud">${esc(w.waiting_note)}</span>`;
+      return `<tr><td><b>${esc(w.name)}</b> ${tagHtml}
+        <div class="dim">${w.kind==='tv'?'剧集':w.kind==='movie'?'电影':'自动'} · 登记于 ${new Date(w.added*1000).toLocaleDateString()}</div>
+        <div class="mt">
+          ${w.kind==='tv'||w.kind==='auto'?`<button class="mini" onclick="wishToTV('${esc(w.name)}')">📺 转追剧</button>`:''}
+          <button class="mini" onclick="wishToDL('${esc(w.name)}')">⬇ 优先4K下载</button>
+          <button class="mini ghost" onclick="wishToDL1080('${esc(w.name)}')">⬇ 降级1080p</button>
+          <button class="mini ghost" onclick="delWish('${esc(k)}')">✕</button>
+        </div></td></tr>`;
     }).join('');
     // 追剧
     $('#showList').innerHTML=shows.map(s=>`<tr><td><b>${esc(s.name)}</b>
@@ -580,11 +603,17 @@ async function refresh(){
     $('#cfgSearchNote').innerHTML = cfg._search_due
       ? `🔍 ${esc(cfg._search_note||'')}`
       : `⏳ ${esc(cfg._search_note||'')}`;
-    // 排队中的集数
+    // 排队中的集数与电影
     const wkeys=Object.keys(waiting||{});
     $('#waiting').innerHTML = wkeys.length
-      ? wkeys.map(n=>{const eps=Object.entries(waiting[n]||{}).map(([e,r])=>`${e} <span class="dim">(${esc(r)})</span>`).join(', ');
-                      return `<div class="item"><div class="t"><b>${esc(n)}</b> — ${eps}</div></div>`}).join('')
+      ? wkeys.map(n=>{
+          const val = waiting[n];
+          if(typeof val === 'string'){
+            return `<div class="item"><div class="t"><b>${esc(n)}</b> <span class="dim">(${esc(val)})</span></div></div>`;
+          }
+          const eps=Object.entries(val||{}).map(([e,r])=>`${e} <span class="dim">(${esc(r)})</span>`).join(', ');
+          return `<div class="item"><div class="t"><b>${esc(n)}</b> — ${eps}</div></div>`;
+        }).join('')
       : '暂无';
   }catch(e){flash('刷新失败: '+e,false)}
 }

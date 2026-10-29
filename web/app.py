@@ -82,6 +82,7 @@ def _bg_search_worker(task_id, q_orig):
 
         payload = {
             "kind": kind, "total": len(results), "q4k": items,
+            "has_4k": bool(items),
             "best": best["title"] if best else None,
             "lo1080": lo_items, "recognized": trans if trans != orig else None, "orig": orig,
             "meta": meta
@@ -179,11 +180,14 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/api/wishes":
                 st = g.state()
                 wl = wishes()
-                # 补充每条心愿的进行中任务信息
+                # 补充每条心愿的进行中任务信息与等待状态
                 for k, w in wl.items():
                     w["tasks"] = [{"label": t["label"], "stage": t["stage"]}
-                                  for t in st["tasks"].values() if t.get("kind") == "tv"
-                                  and g.show_key(t.get("show") or "") == k]
+                                  for t in st["tasks"].values()
+                                  if (t.get("kind") == "tv" and g.show_key(t.get("show") or "") == k)
+                                  or (t.get("kind") == "movie" and (k in g.show_key(t.get("label") or "") or g.show_key(t.get("label") or "") in k))]
+                    if k in st.get("waiting", {}):
+                        w["waiting_note"] = st["waiting"][k]
                 return self._json(200, wl)
             if self.path == "/api/shows":
                 return self._json(200, g.shows())

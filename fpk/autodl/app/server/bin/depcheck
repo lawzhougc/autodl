@@ -21,6 +21,12 @@ http_code() {
 }
 
 jackett_key() {
+    for c in "${TRIM_PKGVAR}/config.json" "/vol1/@appdata/autodl/config.json" "/opt/autodl/config.json"; do
+        if [ -f "$c" ]; then
+            k=$(python3 -c "import json;print(json.load(open('$c')).get('jackett_apikey','').strip())" 2>/dev/null)
+            if [ -n "$k" ]; then echo "$k"; return 0; fi
+        fi
+    done
     local cfg="${JACKETT_CONFIG:-/vol1/@appdata/jackett/data/ServerConfig.json}"
     [ -f "$cfg" ] || return 1
     python3 -c "import json;print(json.load(open('$cfg'))['APIKey'])" 2>/dev/null

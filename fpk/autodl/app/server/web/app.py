@@ -9,19 +9,128 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
+# fpk 安装时用户数据在 TRIM_PKGVAR, 脚本模式在代码目录
+_VAR = os.environ.get("TRIM_PKGVAR", "")
+DATA = _VAR if (_VAR and os.path.isdir(_VAR)) else BASE
 import gy_autodl as g  # noqa: E402
 
 CONFIG_KEYS = ["batch_size", "batch_interval_hours", "backfill_enabled",
                "auto_download_new", "max_submit_per_run", "wanted_quality",
                "search_interval_hours",
+               # 路径设置
+               "media_root", "cloud_root",
                # 资源筛选偏好
                "quality_fallback", "prefer_format", "allow_format",
                "size_min_gb", "size_max_gb", "prefer_codec", "prefer_source", "hdr_prefer",
-               "wanted_lang"]
+               "wanted_lang",
+               # 服务与依赖配置
+               "jackett_url", "jackett_apikey", "jackett_config"]
 
 WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = 8770
-WISH_F = os.path.join(BASE, "wishlist.json")   # {key: {name,kind,added,note}}
+WISH_F = os.path.join(DATA, "wishlist.json")   # {key: {name,kind,added,note}}
+
+# ----------------- 后台搜索任务管理 (避免浏览器关闭/断连导致搜索失效) -----------------
+_SEARCH_LOCK = threading.Lock()
+_SEARCH_TASK = {
+    "id": 0,
+    "q": "",
+    "status": "idle",  # idle | running | done | error
+    "start_time": 0,
+    "finish_time": 0,
+    "data": None,
+    "error": None
+}
+
+def _bg_search_worker(task_id, q_orig):
+    global _SEARCH_TASK
+    try:
+        q = q_orig
+        orig = q
+        trans, meta = g.cn2en(q)
+        if trans != q: q = trans
+        kind = "tv" if g.is_tv_query(q) else "movie"
+        cat = 5000 if kind == "tv" else 2000
+        results = g.jackett_search(q, category=cat)
+        pick = g.best_for_episode if kind == "tv" else g.best_for_movie
+        # 2160p 去重列表 + 推荐
+        q4k = []
+        for r in results:
+            p = g.parse_title(r["title"])
+            if p["quality"] == "2160p" and not p["bad"]:
+                r["_p"] = p; q4k.append(r)
+        q4k.sort(key=g.rank_key)
+        seen, uniq = set(), []
+        for r in q4k:
+            sig = re.sub(r"[^a-z0-9]", "", r["title"].lower())[:35]
+            if sig in seen: continue
+            seen.add(sig); uniq.append(r)
+        items = [{"title": r["title"], "seeders": r["seeders"], "size": r["size"],
+                  "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
+                  "magnet": bool(r["magnet"]),
+                  "langs": sorted(r["_p"].get("langs") or [])}
+                 for r in uniq[:20]]
+        best = pick(results, g.CFG["wanted_quality"]) if kind == "movie" else \
+            (pick(results, int(re.search(r"S(\d+)E(\d+)", q, re.I).group(1)),
+                  int(re.search(r"S(\d+)E(\d+)", q, re.I).group(2)),
+                  g.CFG["wanted_quality"]) if re.search(r"S(\d+)E(\d+)", q, re.I) else None)
+        lo = sorted([r for r in results if g.parse_title(r["title"])["quality"] == "1080p" and not g.parse_title(r["title"])["bad"]],
+                    key=lambda r: -r["seeders"])[:8]
+        lo_items = [{"title": r["title"], "seeders": r["seeders"],
+                     "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
+                     "langs": sorted(g.parse_title(r["title"]).get("langs") or [])} for r in lo]
+
+        payload = {
+            "kind": kind, "total": len(results), "q4k": items,
+            "has_4k": bool(items),
+            "best": best["title"] if best else None,
+            "lo1080": lo_items, "recognized": trans if trans != orig else None, "orig": orig,
+            "meta": meta
+        }
+        with _SEARCH_LOCK:
+            if _SEARCH_TASK["id"] == task_id:
+                _SEARCH_TASK["status"] = "done"
+                _SEARCH_TASK["finish_time"] = time.time()
+                _SEARCH_TASK["data"] = payload
+    except Exception as ex:
+        traceback.print_exc()
+        with _SEARCH_LOCK:
+            if _SEARCH_TASK["id"] == task_id:
+                _SEARCH_TASK["status"] = "error"
+                _SEARCH_TASK["finish_time"] = time.time()
+                _SEARCH_TASK["error"] = str(ex)
+
+def start_search_task(q):
+    global _SEARCH_TASK
+    q = q.strip()
+    with _SEARCH_LOCK:
+        # 如果当前相同的词正在搜索中或刚搜索完(<5分钟)，直接复用
+        now = time.time()
+        if _SEARCH_TASK["q"] == q and _SEARCH_TASK["status"] == "running":
+            return dict(_SEARCH_TASK)
+        if _SEARCH_TASK["q"] == q and _SEARCH_TASK["status"] == "done" and (now - _SEARCH_TASK["finish_time"] < 300):
+            return dict(_SEARCH_TASK)
+
+        new_id = _SEARCH_TASK["id"] + 1
+        _SEARCH_TASK = {
+            "id": new_id,
+            "q": q,
+            "status": "running",
+            "start_time": now,
+            "finish_time": 0,
+            "data": None,
+            "error": None
+        }
+    t = threading.Thread(target=_bg_search_worker, args=(new_id, q), daemon=True)
+    t.start()
+    return dict(_SEARCH_TASK)
+
+def get_search_task_status():
+    with _SEARCH_LOCK:
+        d = dict(_SEARCH_TASK)
+        if d.get("data"):
+            d["data"] = dict(d["data"])
+        return d
 
 def wishes():
     return g.load_json(WISH_F, {})
@@ -44,7 +153,7 @@ def async_run(args, tag):
             line = f"{time.strftime('%m-%d %H:%M:%S')}\t{tag}\trc={rc}\t{out[-1500:]}"
         except Exception as e:
             line = f"{time.strftime('%m-%d %H:%M:%S')}\t{tag}\tERROR\t{e}"
-        with open(os.path.join(BASE, "logs", "webjobs.log"), "a", encoding="utf-8") as f:
+        with open(os.path.join(DATA, "logs", "webjobs.log"), "a", encoding="utf-8") as f:
             f.write(line + "\n" + ("-" * 60) + "\n")
     threading.Thread(target=worker, daemon=True).start()
 
@@ -71,11 +180,14 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/api/wishes":
                 st = g.state()
                 wl = wishes()
-                # 补充每条心愿的进行中任务信息
+                # 补充每条心愿的进行中任务信息与等待状态
                 for k, w in wl.items():
                     w["tasks"] = [{"label": t["label"], "stage": t["stage"]}
-                                  for t in st["tasks"].values() if t.get("kind") == "tv"
-                                  and g.show_key(t.get("show") or "") == k]
+                                  for t in st["tasks"].values()
+                                  if (t.get("kind") == "tv" and g.show_key(t.get("show") or "") == k)
+                                  or (t.get("kind") == "movie" and (k in g.show_key(t.get("label") or "") or g.show_key(t.get("label") or "") in k))]
+                    if k in st.get("waiting", {}):
+                        w["waiting_note"] = st["waiting"][k]
                 return self._json(200, wl)
             if self.path == "/api/shows":
                 return self._json(200, g.shows())
@@ -109,45 +221,40 @@ class H(BaseHTTPRequestHandler):
                         return self._json(200, f.readlines()[-40:])
                 except Exception:
                     return self._json(200, [])
+            if self.path.startswith("/api/logs"):
+                # /api/logs?src=events|run|cron|web&lines=200
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                src = (qs.get("src", ["events"])[0] or "events").lower()
+                try:
+                    lines = max(10, min(2000, int(qs.get("lines", ["200"])[0])))
+                except ValueError:
+                    lines = 200
+                files = {
+                    "events": g.EV,
+                    "run": g.LOG,
+                    "cron": os.path.join(g.DATA, "logs", "cron.log"),
+                    "web": os.path.join(g.DATA, "logs", "webjobs.log"),
+                }
+                path = files.get(src)
+                if not path:
+                    return self._json(400, {"error": f"unknown src: {src}"})
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as f:
+                        tail = f.readlines()[-lines:]
+                    return self._json(200, {"src": src, "lines": len(tail),
+                                            "file": path, "tail": [l.rstrip("\n") for l in tail]})
+                except FileNotFoundError:
+                    return self._json(200, {"src": src, "lines": 0, "file": path, "tail": []})
+                except Exception as ex:
+                    return self._json(200, {"src": src, "lines": 0, "file": path,
+                                            "tail": [], "error": str(ex)})
+            if self.path == "/api/search/status":
+                return self._json(200, get_search_task_status())
             if self.path.startswith("/api/search?"):
                 q = urllib.parse.unquote(self.path.split("q=", 1)[1])
-                orig = q
-                trans, meta = g.cn2en(q)
-                if trans != q: q = trans
-                kind = "tv" if g.is_tv_query(q) else "movie"
-                cat = 5000 if kind == "tv" else 2000
-                results = g.jackett_search(q, category=cat)
-                pick = g.best_for_episode if kind == "tv" else g.best_for_movie
-                # 2160p 去重列表 + 推荐
-                q4k = []
-                for r in results:
-                    p = g.parse_title(r["title"])
-                    if p["quality"] == "2160p" and not p["bad"]:
-                        r["_p"] = p; q4k.append(r)
-                q4k.sort(key=g.rank_key)
-                seen, uniq = set(), []
-                for r in q4k:
-                    sig = re.sub(r"[^a-z0-9]", "", r["title"].lower())[:35]
-                    if sig in seen: continue
-                    seen.add(sig); uniq.append(r)
-                items = [{"title": r["title"], "seeders": r["seeders"], "size": r["size"],
-                          "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
-                          "magnet": bool(r["magnet"]),
-                          "langs": sorted(r["_p"].get("langs") or [])}
-                         for r in uniq[:20]]
-                best = pick(results, g.CFG["wanted_quality"]) if kind == "movie" else \
-                    (pick(results, int(re.search(r"S(\d+)E(\d+)", q, re.I).group(1)),
-                          int(re.search(r"S(\d+)E(\d+)", q, re.I).group(2)),
-                          g.CFG["wanted_quality"]) if re.search(r"S(\d+)E(\d+)", q, re.I) else None)
-                lo = sorted([r for r in results if g.parse_title(r["title"])["quality"] == "1080p" and not g.parse_title(r["title"])["bad"]],
-                            key=lambda r: -r["seeders"])[:8]
-                lo_items = [{"title": r["title"], "seeders": r["seeders"],
-                             "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
-                             "langs": sorted(g.parse_title(r["title"]).get("langs") or [])} for r in lo]
-                return self._json(200, {"kind": kind, "total": len(results), "q4k": items,
-                                        "best": best["title"] if best else None,
-                                        "lo1080": lo_items, "recognized": trans if trans != orig else None, "orig": orig,
-                                        "meta": meta})
+                t = start_search_task(q)
+                # 兼容旧逻辑：如果直接完成(缓存)，直接给 data；否则返回当前状态
+                return self._json(200, t)
             return self._json(404, {"error": "not found"})
         except Exception as e:
             traceback.print_exc()
@@ -180,10 +287,10 @@ class H(BaseHTTPRequestHandler):
                 async_run(["add", name] + (["--allow1080"] if body.get("allow1080") else []), f"add {name}")
                 return self._json(200, {"ok": True, "msg": "已后台提交, 1-2分钟后在任务里查看"})
             elif self.path == "/api/search":
-                q = body.get("q") or ""
+                q = (body.get("q") or "").strip()
                 if not q: return self._json(400, {"error": "empty"})
-                # 搜索同步返回(前端有 loading)
-                self._json(200, {"ok": True})  # 先占位, 真正搜索走 GET /api/search
+                t = start_search_task(q)
+                return self._json(200, t)
             elif self.path == "/api/config":      # 保存下载节奏设置(用已读的 body)
                 updates = {}
                 for k, v in body.items():
@@ -205,9 +312,19 @@ class H(BaseHTTPRequestHandler):
                             v = [str(x).strip().lower() for x in (v or []) if str(x).strip()]
                         if k == "quality_fallback":
                             v = [x for x in v if x in ("2160p", "1080p", "other")]
+                    elif k in ("media_root", "cloud_root"):
+                        v = str(v).strip()
+                        if k == "media_root" and v and not v.startswith("/"):
+                            v = "/" + v
+                        if not v: continue
                     updates[k] = v
                 g.save_cfg(updates)
                 return self._json(200, {"ok": True, "cfg": {k: g.CFG.get(k) for k in CONFIG_KEYS}})
+            elif self.path == "/api/task/delete":
+                key = (body.get("key") or "").strip()
+                if not key: return self._json(400, {"error": "缺少 key"})
+                ok, msg = g.delete_task(key)
+                return self._json(200 if ok else 400, {"ok": ok, "msg": msg})
             elif self.path == "/api/rmshow":
                 rc, out = run_script(["rmshow", body["name"]])
                 return self._json(200, {"rc": rc, "out": out.strip()})
@@ -242,7 +359,19 @@ if __name__ == "__main__":
         pass
     finally:
         s.close()
-    os.makedirs(os.path.join(BASE, "logs"), exist_ok=True)
+    os.makedirs(os.path.join(DATA, "logs"), exist_ok=True)
+
+    # 启动后台推进轮询线程: 每 30 秒自动执行一次 gy_autodl poll (推进 cloud -> nas -> 字幕/完成)
+    def _bg_poll_worker():
+        while True:
+            try:
+                time.sleep(30)
+                run_script(["poll"], timeout=120)
+            except Exception:
+                pass
+    t_poll = threading.Thread(target=_bg_poll_worker, daemon=True)
+    t_poll.start()
+
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), H)
     print(f"gy_autodl web on :{PORT}", flush=True)
     srv.serve_forever()

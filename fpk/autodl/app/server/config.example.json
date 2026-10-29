@@ -37,5 +37,8 @@
  ],
  "native_sources": [
   "bt4g"
- ]
+ ],
+ "jackett_url": "http://127.0.0.1:9117",
+ "jackett_apikey": "",
+ "jackett_config": ""
 }
