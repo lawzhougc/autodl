@@ -114,11 +114,38 @@ class MagnetRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def http(url, data=None, headers=None, timeout=30, method=None):
     req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read()
+    except urllib.error.HTTPError as e:
+        err_msg = ""
+        try:
+            err_body = e.read().decode("utf-8", errors="ignore")
+            # 尝试提取 json 里的 error 或 msg
+            try:
+                ej = json.loads(err_body)
+                err_msg = ej.get("error") or ej.get("msg") or err_body
+            except Exception:
+                err_msg = err_body
+        except Exception:
+            pass
+        if err_msg:
+            raise RuntimeError(f"HTTP {e.code} 接口调用失败 ({url}): {err_msg}") from None
+        raise RuntimeError(f"HTTP {e.code} 接口调用失败 ({url})") from None
 
 def http_json(url, data=None, headers=None, timeout=30, method=None):
-    return json.loads(http(url, data, headers, timeout, method).decode("utf-8"))
+    raw = http(url, data, headers, timeout, method)
+    return json.loads(raw.decode("utf-8"))
+
+def gy_check_login():
+    """检查光鸭云盘登录状态，若未登录或未启动则直接给出友好提示"""
+    try:
+        d = http_json(GY + "/api/user", timeout=5)
+    except Exception as e:
+        raise RuntimeError(f"无法连接光鸭云盘 App (端口 8998): {e}。请确保已在 fnOS 安装并启动光鸭网盘") from None
+    if d.get("is_logged_in") is False or d.get("error"):
+        raise RuntimeError("光鸭云盘当前未登录或登录态已失效！请先打开 fnOS 应用中心的「光鸭网盘」，扫码登录后再试")
+    return d
 
 def gy_get(path, timeout=30):  return http_json(GY + path, timeout=timeout)
 def gy_post(path, body, timeout=60):
@@ -142,12 +169,20 @@ def gy_find(name, pid):
 
 def gy_ensure_path(names, root=""):
     pid = root
-    for n in names:
+    for raw_n in names:
+        n = sanitize(raw_n)
+        if not n: continue
         fid = gy_find(n, pid)
         if not fid:
-            gy_post("/api/create-folder", {"name": n, "parentId": pid}, timeout=30)
+            # 兼容两种字段传参: 飞牛官方部分版本接收 name，部分版本接收 dirName
+            try:
+                res = gy_post("/api/create-folder", {"name": n, "dirName": n, "parentId": pid}, timeout=30)
+                if isinstance(res, dict) and res.get("code") not in (0, None):
+                    raise RuntimeError(res.get("msg") or f"错误码 {res.get('code')}")
+            except Exception as e:
+                raise RuntimeError(f"网盘创建文件夹 [{n}] 失败: {e}") from None
             fid = gy_find(n, pid)
-            if not fid: raise RuntimeError(f"网盘建目录失败: {n}")
+            if not fid: raise RuntimeError(f"网盘建目录后未找到: {n}")
         pid = fid
     return pid
 
@@ -164,7 +199,7 @@ def gy_resolve_torrent(tbytes, filename="t.torrent"):
 def gy_add_magnet(url, parent_id, file_indexes=None, new_name=None):
     body = {"url": url, "parentId": parent_id or ""}
     if file_indexes: body["fileIndexes"] = file_indexes
-    if new_name: body["newName"] = new_name[:80]
+    if new_name: body["newName"] = sanitize(new_name)[:80]
     r = gy_post("/api/cloud-add/magnet", body, timeout=90)
     tid = (r.get("data") or {}).get("taskId")
     if not tid:
@@ -490,7 +525,13 @@ def rank_key(r):
     return (lang_score(p.get("langs") or set()), not p["proper"], src) + \
            pref_score(p) + (dv, -r["seeders"], -r["size"])
 
-def show_key(name): return re.sub(r"\s+", " ", name).strip().title()
+def sanitize(name):
+    # 过滤文件系统与光鸭云盘非法字符: \ / : * ? " < > |
+    return re.sub(r'[\\/:*?"<>|]+', " ", name).strip()[:120]
+
+def show_key(name):
+    clean = sanitize(name)
+    return re.sub(r"\s+", " ", clean).strip().title()
 
 def wanted_qualities():
     """本轮可接受的清晰度集合: 首选 + 显式允许的降级档; any=不限"""
@@ -559,10 +600,7 @@ def cn2en(title):
 
 def clean_release(title):
     t = re.sub(r"\[.*?\]|\(.*?\)", " ", title)
-    return re.sub(r"\s+", " ", t).strip(" .-")[:70]
-
-def sanitize(name):
-    return re.sub(r'[\\/:*?"<>|]+', " ", name).strip()[:120]
+    return sanitize(re.sub(r"\s+", " ", t).strip(" .-")[:70])
 
 def is_video(name):
     return name.lower().endswith((".mkv", ".mp4", ".ts", ".m2ts", ".avi", ".mov", ".wmv"))
@@ -809,6 +847,7 @@ def best_for_movie(results, quality="2160p"):
 
 def submit(res, label, parent_path, wanted_eps=None, min_mb=None):
     """resolve → 选文件 → 建云任务。返回 (taskId, magnet, picked_files)"""
+    gy_check_login()
     magnet, _ = to_magnet(res)
     if not magnet: raise RuntimeError("无法获得磁链")
     resolved = gy_resolve(magnet)
@@ -1198,6 +1237,7 @@ def cmd_add(args):
                           "added": time.time(), "stage": "cloud", "wanted": [(s, e)]}
         st["processed"].append(magnet.upper().split("btih:")[-1].split("&")[0])
         save_state(st)
+        event(f"已创建追剧云下载: {name} S{s:02d}E{e:02d}")
         print(f"云任务 {tid} 已创建, 之后 run/poll 会自动推进到NAS并补字幕")
     elif is_tv_query(title):
         sys.exit("暂不支持整季包下载, 请用单集标题(如 剧名 S02E07)或 addshow 登记追踪")
@@ -1217,6 +1257,7 @@ def cmd_add(args):
                           "added": time.time(), "stage": "cloud"}
         st["processed"].append(magnet.upper().split("btih:")[-1].split("&")[0])
         save_state(st)
+        event(f"已创建电影云下载: {label}")
         print(f"云任务 {tid} 已创建, 之后 run/poll 会自动推进到NAS并补字幕")
 
 def no4k_exit(results):
