@@ -1,0 +1,13 @@
+services:
+  flaresolverr:
+    image: flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+      - TZ=Asia/Shanghai
+    ports:
+      - "8191:8191"
+    shm_size: 1gb
