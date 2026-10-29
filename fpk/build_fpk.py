@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Python 版 FPK 打包工具 (跨平台支持 Windows / macOS / Linux)
-符合飞牛 NAS (fnOS) 官方应用规范
+飞牛 NAS (fnOS) FPK 自动打包工具
+优先调用官方原生 fnpack 工具进行打包；若未安装则自动回退至标准 TAR/GZ 构建器。
+生成符合飞牛应用中心规范的 autodl-{version}.fpk 安装包。
 """
 
 import os
 import shutil
+import subprocess
 import tarfile
 import io
 import re
@@ -17,7 +19,7 @@ SERVER_DIR = os.path.join(FPK_DIR, "app", "server")
 
 
 def sync_files():
-    print("==> 1. 同步最新源码到 fpk 目录")
+    print("==> 1. 同步最新源码到打包目录")
     os.makedirs(SERVER_DIR, exist_ok=True)
     os.makedirs(os.path.join(SERVER_DIR, "web"), exist_ok=True)
     os.makedirs(os.path.join(SERVER_DIR, "flaresolverr"), exist_ok=True)
@@ -77,18 +79,34 @@ def get_version():
             m = re.match(r'^\s*version\s*=\s*["\']?([^"\'\s]+)', line)
             if m:
                 return m.group(1)
-    return "0.2.12"
+    return "0.2.13"
 
 
-def make_tarinfo_filter(is_root_level=False):
+def find_fnpack():
+    """查找官方原生 fnpack 可执行文件"""
+    candidates = [
+        shutil.which("fnpack"),
+        shutil.which("fnpack.exe"),
+        os.path.join(ROOT, "fnpack.exe"),
+        os.path.join(ROOT, "fpk", "fnpack.exe"),
+        r"C:\Users\law\.gemini\antigravity\bin\fnpack.exe",
+        r"C:\Users\law\AppData\Local\Programs\Git\cmd\fnpack.exe",
+        "/usr/local/bin/fnpack",
+        "/usr/bin/fnpack"
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
+
+
+def make_tarinfo_filter():
     def filter_func(tarinfo):
-        # 飞牛 NAS 要求所有权为 root:root (0:0)
         tarinfo.uid = 0
         tarinfo.gid = 0
         tarinfo.uname = "root"
         tarinfo.gname = "root"
 
-        # 设置权限
         name = tarinfo.name.replace("\\", "/")
         if tarinfo.isdir():
             tarinfo.mode = 0o755
@@ -100,6 +118,73 @@ def make_tarinfo_filter(is_root_level=False):
             tarinfo.mode = 0o644
         return tarinfo
     return filter_func
+
+
+def build_with_native_fnpack(fnpack_bin, ver):
+    print(f"==> 4. 使用飞牛官方原生 fnpack ({fnpack_bin}) 打包...")
+    # 在 ROOT 目录下执行 fnpack build -d fpk/autodl
+    cmd = [fnpack_bin, "build", "-d", os.path.relpath(FPK_DIR, ROOT)]
+    res = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    if res.returncode != 0:
+        print(f"fnpack 执行出错:\n{res.stderr}\n回退至标准 TAR 构建器...")
+        return False
+    print(res.stdout.strip())
+
+    # fnpack 默认会在工作目录生成 autodl.fpk
+    default_out = os.path.join(ROOT, "autodl.fpk")
+    target_out = os.path.join(ROOT, f"autodl-{ver}.fpk")
+    if os.path.exists(default_out):
+        shutil.copy2(default_out, target_out)
+        shutil.copy2(default_out, os.path.join(FPK_DIR, "autodl.fpk"))
+        file_size = os.path.getsize(target_out)
+        print(f"==> 5. 官方原生 fnpack 打包成功!")
+        print(f"  安装包路径: {target_out}")
+        print(f"  文件大小: {file_size} 字节 ({file_size / 1024:.1f} KB)")
+        return True
+    return False
+
+
+def build_with_internal_tar(ver):
+    print("==> 4. 使用内置规范构建器生成 app.tgz 与 fpk...")
+    app_dir = os.path.join(FPK_DIR, "app")
+    app_tgz_io = io.BytesIO()
+
+    with tarfile.open(fileobj=app_tgz_io, mode="w:gz", format=tarfile.PAX_FORMAT) as app_tar:
+        entries = sorted(os.listdir(app_dir))
+        for entry in entries:
+            entry_path = os.path.join(app_dir, entry)
+            app_tar.add(entry_path, arcname=entry, filter=make_tarinfo_filter())
+
+    app_tgz_bytes = app_tgz_io.getvalue()
+    fpk_name = f"autodl-{ver}.fpk"
+    fpk_path = os.path.join(ROOT, fpk_name)
+    alt_fpk_path = os.path.join(FPK_DIR, "autodl.fpk")
+
+    with tarfile.open(fpk_path, mode="w:gz", format=tarfile.PAX_FORMAT) as fpk_tar:
+        t_app = tarfile.TarInfo(name="app.tgz")
+        t_app.size = len(app_tgz_bytes)
+        t_app.mode = 0o644
+        t_app.uid = 0
+        t_app.gid = 0
+        t_app.uname = "root"
+        t_app.gname = "root"
+        fpk_tar.addfile(t_app, io.BytesIO(app_tgz_bytes))
+
+        for sub_dir in ["cmd", "config", "wizard"]:
+            d_path = os.path.join(FPK_DIR, sub_dir)
+            if os.path.exists(d_path):
+                fpk_tar.add(d_path, arcname=sub_dir, filter=make_tarinfo_filter())
+
+        for fn in ["ICON.PNG", "ICON_256.PNG", "manifest"]:
+            p = os.path.join(FPK_DIR, fn)
+            if os.path.exists(p):
+                fpk_tar.add(p, arcname=fn, filter=make_tarinfo_filter())
+
+    shutil.copy2(fpk_path, alt_fpk_path)
+    file_size = os.path.getsize(fpk_path)
+    print(f"==> 5. 打包完成!")
+    print(f"  安装包路径: {fpk_path}")
+    print(f"  文件大小: {file_size} 字节 ({file_size / 1024:.1f} KB)")
 
 
 def build():
@@ -114,65 +199,13 @@ def build():
     ver = get_version()
     print(f"==> 3. 读取应用版本: v{ver}")
 
-    # 打包 app.tgz
-    print("==> 4. 生成内部应用包 app.tgz")
-    app_dir = os.path.join(FPK_DIR, "app")
-    app_tgz_io = io.BytesIO()
-
-    with tarfile.open(fileobj=app_tgz_io, mode="w:gz", format=tarfile.PAX_FORMAT) as app_tar:
-        # 添加 server, ui, www, config
-        entries = sorted(os.listdir(app_dir))
-        for entry in entries:
-            entry_path = os.path.join(app_dir, entry)
-            app_tar.add(entry_path, arcname=entry, filter=make_tarinfo_filter())
-
-    app_tgz_bytes = app_tgz_io.getvalue()
-    print(f"  app.tgz 大小: {len(app_tgz_bytes)} 字节")
-
-    # 打包最终 fpk
-    fpk_name = f"autodl-{ver}.fpk"
-    fpk_path = os.path.join(ROOT, fpk_name)
-    alt_fpk_path = os.path.join(FPK_DIR, "autodl.fpk")
-
-    print(f"==> 5. 构建最终安装包 {fpk_name}")
-
-    with tarfile.open(fpk_path, mode="w:gz", format=tarfile.PAX_FORMAT) as fpk_tar:
-        # 1. app.tgz
-        t_app = tarfile.TarInfo(name="app.tgz")
-        t_app.size = len(app_tgz_bytes)
-        t_app.mode = 0o644
-        t_app.uid = 0
-        t_app.gid = 0
-        t_app.uname = "root"
-        t_app.gname = "root"
-        fpk_tar.addfile(t_app, io.BytesIO(app_tgz_bytes))
-
-        # 2. cmd 目录
-        cmd_dir = os.path.join(FPK_DIR, "cmd")
-        if os.path.exists(cmd_dir):
-            fpk_tar.add(cmd_dir, arcname="cmd", filter=make_tarinfo_filter())
-
-        # 3. config 目录
-        cfg_dir = os.path.join(FPK_DIR, "config")
-        if os.path.exists(cfg_dir):
-            fpk_tar.add(cfg_dir, arcname="config", filter=make_tarinfo_filter())
-
-        # 4. 图标与描述文件
-        for fn in ["ICON.PNG", "ICON_256.PNG", "manifest"]:
-            p = os.path.join(FPK_DIR, fn)
-            if os.path.exists(p):
-                fpk_tar.add(p, arcname=fn, filter=make_tarinfo_filter())
-
-        # 5. wizard 目录
-        wiz_dir = os.path.join(FPK_DIR, "wizard")
-        if os.path.exists(wiz_dir):
-            fpk_tar.add(wiz_dir, arcname="wizard", filter=make_tarinfo_filter())
-
-    shutil.copy2(fpk_path, alt_fpk_path)
-    file_size = os.path.getsize(fpk_path)
-    print(f"==> 6. 打包完成!")
-    print(f"  安装包路径: {fpk_path}")
-    print(f"  文件大小: {file_size} 字节 ({file_size / 1024:.1f} KB)")
+    fnpack_bin = find_fnpack()
+    if fnpack_bin:
+        success = build_with_native_fnpack(fnpack_bin, ver)
+        if not success:
+            build_with_internal_tar(ver)
+    else:
+        build_with_internal_tar(ver)
 
 
 if __name__ == "__main__":

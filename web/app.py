@@ -67,23 +67,36 @@ def _bg_search_worker(task_id, q_orig):
             seen.add(sig); uniq.append(r)
         items = [{"title": r["title"], "seeders": r["seeders"], "size": r["size"],
                   "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
-                  "magnet": bool(r["magnet"]),
+                  "magnet_url": r.get("magnet") or r.get("link") or "",
+                  "has_magnet": bool(r.get("magnet")),
+                  "infohash": r.get("infohash") or "",
+                  "hdr": bool(r.get("_p", {}).get("hdr")),
+                  "codec": r.get("_p", {}).get("codec") or "",
+                  "quality": r.get("_p", {}).get("quality") or "2160p",
                   "langs": sorted(r["_p"].get("langs") or [])}
-                 for r in uniq[:20]]
+                 for r in uniq[:25]]
         best = pick(results, g.CFG["wanted_quality"]) if kind == "movie" else \
             (pick(results, int(re.search(r"S(\d+)E(\d+)", q, re.I).group(1)),
                   int(re.search(r"S(\d+)E(\d+)", q, re.I).group(2)),
                   g.CFG["wanted_quality"]) if re.search(r"S(\d+)E(\d+)", q, re.I) else None)
         lo = sorted([r for r in results if g.parse_title(r["title"])["quality"] == "1080p" and not g.parse_title(r["title"])["bad"]],
-                    key=lambda r: -r["seeders"])[:8]
-        lo_items = [{"title": r["title"], "seeders": r["seeders"],
+                    key=lambda r: -r["seeders"])[:15]
+        lo_items = [{"title": r["title"], "seeders": r["seeders"], "size": r["size"],
                      "size_gb": round(r["size"] / (g.MB * 1024), 1), "idx": r["idx"],
+                     "magnet_url": r.get("magnet") or r.get("link") or "",
+                     "has_magnet": bool(r.get("magnet")),
+                     "infohash": r.get("infohash") or "",
+                     "hdr": bool(g.parse_title(r["title"]).get("hdr")),
+                     "codec": g.parse_title(r["title"]).get("codec") or "",
+                     "quality": "1080p",
                      "langs": sorted(g.parse_title(r["title"]).get("langs") or [])} for r in lo]
 
         payload = {
             "kind": kind, "total": len(results), "q4k": items,
             "has_4k": bool(items),
             "best": best["title"] if best else None,
+            "best_magnet": (best.get("magnet") or best.get("link") or "") if best else None,
+            "best_infohash": (best.get("infohash") or "") if best else None,
             "lo1080": lo_items, "recognized": trans if trans != orig else None, "orig": orig,
             "meta": meta
         }
@@ -284,8 +297,17 @@ class H(BaseHTTPRequestHandler):
                 return self._json(200, {"rc": rc, "out": out.strip()})
             elif self.path == "/api/add":         # 立即下载(单集/电影)
                 name = body["name"]
-                async_run(["add", name] + (["--allow1080"] if body.get("allow1080") else []), f"add {name}")
-                return self._json(200, {"ok": True, "msg": "已后台提交, 1-2分钟后在任务里查看"})
+                cmd = ["add", name]
+                if body.get("allow1080"):
+                    cmd.append("--allow1080")
+                if body.get("exact_title"):
+                    cmd.extend(["--exact-title", body["exact_title"]])
+                if body.get("magnet"):
+                    cmd.extend(["--magnet", body["magnet"]])
+                if body.get("infohash"):
+                    cmd.extend(["--infohash", body["infohash"]])
+                async_run(cmd, f"add {name}")
+                return self._json(200, {"ok": True, "msg": "已提交后台下载"})
             elif self.path == "/api/search":
                 q = (body.get("q") or "").strip()
                 if not q: return self._json(400, {"error": "empty"})

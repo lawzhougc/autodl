@@ -5,51 +5,124 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>影视资源自动追踪控制台</title>
 <style>
-:root{--bg:#0f1420;--card:#1a2130;--line:#2a3347;--tx:#e6ebf4;--dim:#8a94a8;--acc:#4f8cff;--ok:#3fb96f;--warn:#e0a13f;--bad:#e05c5c;--side:#131a28;--hov:#1c2536;--inp:#0d1119;--rowline:#212a3c;--barbg:#0d1119;--tagcloud:#3a2f12;--tagcloud-tx:var(--warn);--tag-nas-bg:#122a3a;--flash-ok-bg:#12321f;--flash-ok-tx:var(--ok);--flash-err-bg:#3a1212;--flash-err-tx:var(--bad)}
-html[data-theme=light]{--bg:#f3f5f9;--card:#ffffff;--line:#dfe4ec;--tx:#1c2433;--dim:#68727f;--acc:#2f6fe0;--ok:#1f9d55;--warn:#b97a12;--bad:#d64545;--side:#ffffff;--hov:#eef2f8;--inp:#f6f8fb;--rowline:#eceff4;--barbg:#e8ecf2;--tagcloud:#faf0dc;--tagcloud-tx:#9a6a08;--tag-nas-bg:#e3f1fb;--flash-ok-bg:#e4f5ea;--flash-ok-tx:#1f7a44;--flash-err-bg:#fdeaea;--flash-err-tx:#c0392b}
-body{transition:background .2s,color .2s}
+:root{
+  --bg-base:#0b0f19;
+  --surface-1:#131a29;
+  --surface-2:#1b2438;
+  --surface-border:#24314c;
+  --bg:var(--bg-base);
+  --card:var(--surface-1);
+  --line:var(--surface-border);
+  --side:var(--surface-1);
+  --hov:var(--surface-2);
+  --inp:#0a0e17;
+  --rowline:#1b2438;
+  --tx:#f0f4fc;
+  --dim:#8c97ad;
+  --acc:#4f8cff;
+  --acc-glow:rgba(79,140,255,0.22);
+  --ok:#3fb96f;
+  --warn:#e0a13f;
+  --bad:#e05c5c;
+  --barbg:#0a0e17;
+  --tagcloud:#3a2f12;
+  --tagcloud-tx:var(--warn);
+  --tag-nas-bg:#122a3a;
+  --flash-ok-bg:#12321f;
+  --flash-ok-tx:var(--ok);
+  --flash-err-bg:#3a1212;
+  --flash-err-tx:var(--bad);
+}
+html[data-theme=light]{
+  --bg-base:#f4f6fa;
+  --surface-1:#ffffff;
+  --surface-2:#edf1f7;
+  --surface-border:#dbe1ea;
+  --bg:var(--bg-base);
+  --card:var(--surface-1);
+  --line:var(--surface-border);
+  --side:var(--surface-1);
+  --hov:var(--surface-2);
+  --inp:#f8fafc;
+  --rowline:#edf1f7;
+  --tx:#1a2230;
+  --dim:#64748b;
+  --acc:#2f6fe0;
+  --acc-glow:rgba(47,111,224,0.18);
+  --ok:#1f9d55;
+  --warn:#b97a12;
+  --bad:#d64545;
+  --barbg:#e2e8f0;
+  --tagcloud:#faf0dc;
+  --tagcloud-tx:#9a6a08;
+  --tag-nas-bg:#e3f1fb;
+  --flash-ok-bg:#e4f5ea;
+  --flash-ok-tx:#1f7a44;
+  --flash-err-bg:#fdeaea;
+  --flash-err-tx:#c0392b;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--tx);font:15px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;display:flex;min-height:100vh}
+body{background:var(--bg);color:var(--tx);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;display:flex;min-height:100vh;transition:all 0.15s cubic-bezier(0.4,0,0.2,1)}
+.ico{width:16px;height:16px;flex-shrink:0;vertical-align:-2px;pointer-events:none}
 /* ---- 左侧导航 ---- */
-#side{width:190px;flex-shrink:0;background:var(--side);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh}
-#side .logo{font-size:16px;font-weight:600;padding:4px 10px 2px;white-space:nowrap}
-#side .sub{color:var(--dim);font-size:11px;padding:0 10px 14px;line-height:1.5}
+#side{width:196px;flex-shrink:0;background:var(--side);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh}
+#side .logo{font-size:16px;font-weight:600;padding:4px 8px 2px;white-space:nowrap;display:flex;align-items:center;gap:8px}
+#side .badge-ver{font-size:11px;font-weight:500;padding:1px 7px;border-radius:99px;background:var(--hov);border:1px solid var(--line);color:var(--dim);margin-left:auto}
+#side .sub{color:var(--dim);font-size:11px;padding:2px 8px 14px;line-height:1.5}
 #side nav{display:flex;flex-direction:column;gap:4px}
-#side nav button{display:flex;align-items:center;gap:9px;background:transparent;border:0;color:var(--dim);padding:10px 12px;border-radius:9px;font-size:14px;cursor:pointer;text-align:left;width:100%}
+#side nav button{display:flex;align-items:center;gap:9px;background:transparent;border:0;color:var(--dim);padding:9px 12px;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;width:100%;transition:all 0.15s cubic-bezier(0.4,0,0.2,1)}
 #side nav button:hover{background:var(--hov);color:var(--tx)}
 #side nav button.on{background:var(--acc);color:#fff}
 #side nav button .pill{margin-left:auto;margin-right:0;font-size:11px;padding:0 7px}
-#side .foot{margin-top:auto;padding:10px;font-size:11px;color:var(--dim);line-height:1.7}
-#side .foot a{display:block}
+#side .foot{margin-top:auto;padding:10px 4px 4px;font-size:11px;color:var(--dim);line-height:1.6}
+#side .quick-bar{display:flex;gap:6px;margin-top:8px}
+#side .quick-bar a{flex:1;text-align:center;padding:5px 4px;border:1px solid var(--line);border-radius:6px;background:var(--hov);color:var(--tx);font-size:11px;text-decoration:none;transition:all 0.15s cubic-bezier(0.4,0,0.2,1)}
+#side .quick-bar a:hover{border-color:var(--acc);color:var(--acc)}
 /* ---- 主区 ---- */
 #main{flex:1;min-width:0;padding:20px 24px;max-width:1020px}
-h1{font-size:20px;margin-bottom:2px}
-.sub{color:var(--dim);font-size:13px;margin-bottom:16px}
+h1{font-size:22px;font-weight:700;margin-bottom:4px;letter-spacing:-0.2px}
+.sub{color:var(--dim);font-size:12px;margin-bottom:16px}
 .page{display:none}
 .page.on{display:block}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px}
-h2{font-size:16px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
-input[type=text]{background:var(--inp);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px;width:100%}
-input[type=number]{background:var(--inp);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 12px;font-size:14px}
-input:focus{outline:none;border-color:var(--acc)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px}
+h2{font-size:16px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+input[type=text],input[type=number],select{background:var(--inp);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:8px 12px;font-size:14px;outline:none;transition:all 0.15s cubic-bezier(0.4,0,0.2,1)}
+input[type=text]{width:100%}
+input:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-glow)}
 .row{display:flex;gap:8px;align-items:center}
-button{background:var(--acc);border:0;border-radius:8px;color:#fff;padding:9px 16px;font-size:14px;cursor:pointer;white-space:nowrap}
-button:hover{filter:brightness(1.15)}
+button{background:var(--acc);border:0;border-radius:8px;color:#fff;padding:8px 15px;font-size:14px;cursor:pointer;white-space:nowrap;transition:all 0.15s cubic-bezier(0.4,0,0.2,1)}
+button:hover{filter:brightness(1.12)}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
+button.ghost:hover{background:var(--hov);color:var(--tx);border-color:var(--line)}
 button.mini{padding:4px 10px;font-size:12px;border-radius:6px}
 button.bad{background:var(--bad)}
-select{background:var(--inp);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 10px;font-size:14px}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th{color:var(--dim);font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px}
 td{padding:8px;border-bottom:1px solid var(--rowline);vertical-align:top}
-.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px}
-.tag.cloud{background:var(--tagcloud);color:var(--tagcloud-tx)}
-.tag.nas{background:var(--tag-nas-bg);color:#57b6f0}
-.tag.done{background:var(--flash-ok-bg);color:var(--flash-ok-tx)}
-.tag.failed{background:var(--flash-err-bg);color:var(--flash-err-tx)}
-.dim{color:var(--dim);font-size:13px}
-.bar{height:6px;background:var(--inp);border-radius:4px;overflow:hidden;margin-top:4px}
-.bar i{display:block;height:100%;background:var(--acc)}
+.kpi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+.kpi-pill{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:10px}
+.kpi-dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex-shrink:0}
+.kpi-dot.active{background:#3b82f6;box-shadow:0 0 8px rgba(59,130,246,0.6)}
+.kpi-dot.tv{background:#a855f7;box-shadow:0 0 8px rgba(168,85,247,0.6)}
+.kpi-dot.done{background:#10b981;box-shadow:0 0 8px rgba(16,185,129,0.6)}
+.kpi-label{font-size:12px;color:var(--dim);flex:1}
+.kpi-val{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--tx)}
+.tag{display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;letter-spacing:0.2px}
+.tag.cloud{background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.28)}
+.tag.nas{background:rgba(168,85,247,0.15);color:#c084fc;border:1px solid rgba(168,85,247,0.28)}
+.tag.sub{background:rgba(6,182,212,0.15);color:#22d3ee;border:1px solid rgba(6,182,212,0.28)}
+.tag.done{background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.28)}
+.tag.failed{background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.28)}
+html[data-theme=light] .tag.cloud{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
+html[data-theme=light] .tag.nas{background:#faf5ff;color:#6d28d9;border-color:#ddd6fe}
+html[data-theme=light] .tag.sub{background:#ecfeff;color:#0e7490;border-color:#a5f3fc}
+html[data-theme=light] .tag.done{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
+html[data-theme=light] .tag.failed{background:#fef2f2;color:#b91c1c;border-color:#fecaca}
+.dim{color:var(--dim);font-size:12px}
+.bar{height:6px;background:rgba(255,255,255,0.06);border-radius:99px;overflow:hidden;margin-top:4px}
+html[data-theme=light] .bar{background:rgba(0,0,0,0.07)}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,#3b82f6,#60a5fa);border-radius:99px;transition:width 0.35s cubic-bezier(0.4,0,0.2,1)}
+#searchRes{max-height:480px;overflow-y:auto;padding-right:4px}
 #searchRes .item,.item{padding:8px;border-bottom:1px solid var(--rowline);display:flex;justify-content:space-between;gap:10px;align-items:center}
 #searchRes .t,.item .t{flex:1;min-width:0}
 #searchRes .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13.5px}
@@ -60,8 +133,24 @@ td{padding:8px;border-bottom:1px solid var(--rowline);vertical-align:top}
 .mb{margin-bottom:10px}
 .pill{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:99px;padding:2px 10px;margin-right:6px}
 a{color:var(--acc);text-decoration:none}
-.events{font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;color:var(--dim);height:calc(100vh - 230px);min-height:420px;overflow:auto;white-space:pre-wrap;background:var(--inp);border:1px solid var(--line);border-radius:8px;padding:12px 14px;line-height:1.6}
+.events{font-size:12px;font-family:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;color:#cbd5e1;height:calc(100vh - 230px);min-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-all;background:#0a0e17;border:1px solid var(--line);border-radius:8px;padding:12px 14px;line-height:1.6}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.lib-split{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;align-items:start}
+.act-group{display:inline-flex;align-items:center;gap:6px;position:relative}
+.drop-menu{position:relative;display:inline-block}
+.drop-btn{padding:3px 8px;font-size:13px;line-height:1;border-radius:6px}
+.drop-content{display:none;position:absolute;right:0;top:100%;margin-top:4px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.45);min-width:115px;z-index:30;padding:4px 0}
+.drop-menu:hover .drop-content,.drop-menu:focus-within .drop-content{display:block}
+.drop-content a{display:block;padding:6px 12px;font-size:12px;color:var(--tx);text-decoration:none;white-space:nowrap;transition:background 0.12s}
+.drop-content a:hover{background:var(--hov);color:var(--acc)}
+.drop-content a.text-bad{color:var(--bad)}
+.drop-content a.text-bad:hover{background:rgba(224,92,92,0.12);color:var(--bad)}
+.cfg-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 0;border-bottom:1px solid var(--rowline)}
+.cfg-row:last-child{border-bottom:0}
+.cfg-label{flex:1;min-width:0;padding-right:12px}
+.cfg-title{font-size:13.5px;font-weight:600;color:var(--tx);margin-bottom:2px}
+.cfg-ctrl{flex-shrink:0;display:flex;align-items:center;gap:8px}
+.cfg-bottom-bar{position:sticky;bottom:16px;background:var(--surface-1);border:1px solid var(--surface-border);box-shadow:0 8px 30px rgba(0,0,0,0.35);border-radius:12px;padding:12px 18px;margin-top:20px;display:flex;justify-content:space-between;align-items:center;z-index:20;backdrop-filter:blur(8px)}
 @media(max-width:760px){
   body{flex-direction:column}
   #side{width:100%;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px 14px;gap:8px}
@@ -69,25 +158,35 @@ a{color:var(--acc);text-decoration:none}
   #side nav button{width:auto;padding:7px 11px}
   #side .sub,#side .foot{display:none}
   #main{padding:14px}
-  .grid2{grid-template-columns:1fr}
+  .grid2,.lib-split{grid-template-columns:1fr}
+  .cfg-row{flex-direction:column;align-items:stretch;gap:8px}
+  .cfg-ctrl{justify-content:flex-start}
+  .cfg-ctrl input[type=text],.cfg-ctrl input[type=password],.cfg-ctrl select{width:100%!important}
+  .cfg-bottom-bar{bottom:10px;padding:10px 14px;flex-direction:column;gap:10px}
 }
 </style>
 </head>
 <body>
 
 <aside id="side">
-  <div class="logo">🎬 影视追踪</div>
-  <div class="sub">搜索 → 光鸭云下载 → NAS → 自动中文字幕</div>
+  <div class="logo">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="2" width="20" height="20" rx="3"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
+    <span>影视追踪</span>
+    <span class="badge-ver">v0.2.14</span>
+  </div>
+  <div class="sub">搜索 → 云下载 → NAS → 自动字幕</div>
   <nav>
-    <button data-page="home" class="on">🏠 总览</button>
-    <button data-page="lib">📋 片单 <span class="pill" id="navCounts"></span></button>
-    <button data-page="cfg">⚙️ 设置</button>
-    <button data-page="log">📜 日志</button>
+    <button data-page="home" class="on"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>总览</span></button>
+    <button data-page="lib"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg><span>片单</span><span class="pill" id="navCounts"></span></button>
+    <button data-page="cfg"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>设置</span></button>
+    <button data-page="log"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg><span>日志</span></button>
   </nav>
   <div class="foot">
     <button id="themeBtn" class="ghost" onclick="toggleTheme()" style="width:100%;padding:7px 10px;font-size:13px">🌙 夜间模式</button>
-    <a id="linkGuangya" href="javascript:void(0)" onclick="openHostPort(8998)" target="_blank">光鸭网盘 ↗</a>
-    <a id="linkJackett" href="javascript:void(0)" onclick="openHostPort(9117)" target="_blank">Jackett ↗</a>
+    <div class="quick-bar">
+      <a id="linkGuangya" href="javascript:void(0)" onclick="openHostPort(8998)" target="_blank">光鸭网盘 ↗</a>
+      <a id="linkJackett" href="javascript:void(0)" onclick="openHostPort(9117)" target="_blank">Jackett ↗</a>
+    </div>
   </div>
 </aside>
 
@@ -96,23 +195,41 @@ a{color:var(--acc);text-decoration:none}
 
 <!-- ============ 总览 ============ -->
 <div class="page on" id="page-home">
+<div class="kpi-grid">
+  <div class="kpi-pill">
+    <span class="kpi-dot active"></span>
+    <span class="kpi-label">活跃下载</span>
+    <span class="kpi-val" id="kpiActive">0</span>
+  </div>
+  <div class="kpi-pill">
+    <span class="kpi-dot tv"></span>
+    <span class="kpi-label">正在追剧</span>
+    <span class="kpi-val" id="kpiShows">0</span>
+  </div>
+  <div class="kpi-pill">
+    <span class="kpi-dot done"></span>
+    <span class="kpi-label">今日完成</span>
+    <span class="kpi-val" id="kpiDone">0</span>
+  </div>
+</div>
+
 <div class="card">
-  <h2>➕ 登记想看的片</h2>
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg> 登记想看的片</h2>
   <div class="row">
-    <input type="text" id="wishName" placeholder="美剧名(如 MobLand)或电影名(如 Oppenheimer 2023), 也可带集号 S02E07" onkeydown="if(event.key=='Enter')addWish()">
+    <input type="text" id="wishName" placeholder="美剧名(如 MobLand)或电影名(如 Oppenheimer 2023), 也可带集号 S02E07" onkeydown="if(event.key=='Enter')doSearch()">
     <select id="wishKind"><option value="auto">自动识别</option><option value="tv">剧集</option><option value="movie">电影</option></select>
-    <button onclick="addWish()">登记</button>
-    <button class="ghost" onclick="doSearch()">🔍 搜索资源</button>
+    <button onclick="doSearch()"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> 搜索资源</button>
+    <button class="ghost" onclick="addWish()">登记</button>
   </div>
   <div class="dim mt">登记后进入「片单」; 搜索结果里可直接选资源立即下载。支持中文片名（如 黑帮领地 第二季）。</div>
   <div id="searchRes" class="mt" style="display:none"></div>
 </div>
 
 <div class="card">
-  <h2>⏬ 任务进度
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 任务进度
     <span style="flex:1"></span>
-    <button class="mini ghost" onclick="api('/api/run','已触发全量 run')">▶ 手动 run</button>
-    <button class="mini ghost" onclick="api('/api/poll','已触发 poll')">⟳ 推进任务</button>
+    <button class="mini ghost" onclick="api('/api/run','已触发全量 run')">手动运行</button>
+    <button class="mini ghost" onclick="api('/api/poll','已触发 poll')">推进任务</button>
   </h2>
   <table><thead><tr><th>任务</th><th>阶段</th><th>进度 / 详情</th><th style="width:50px;text-align:right">操作</th></tr></thead><tbody id="taskList"></tbody></table>
   <div class="dim" id="taskEmpty" style="display:none">暂无进行中任务</div>
@@ -120,11 +237,11 @@ a{color:var(--acc);text-decoration:none}
 
 <div class="grid2">
 <div class="card">
-  <h2>⏳ 排队中的剧集与电影</h2>
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 排队中的剧集与电影</h2>
   <div id="waiting" class="dim">暂无</div>
 </div>
 <div class="card">
-  <h2>📺 追剧中</h2>
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg> 追剧中</h2>
   <div id="watchBrief" class="dim">加载中…</div>
 </div>
 </div>
@@ -132,159 +249,275 @@ a{color:var(--acc);text-decoration:none}
 
 <!-- ============ 片单 ============ -->
 <div class="page" id="page-lib">
+<div class="lib-split">
 <div class="card">
-  <h2>📋 心愿清单 <span class="pill" id="wishCount"></span></h2>
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg> 心愿清单 <span class="pill" id="wishCount"></span></h2>
   <table><tbody id="wishList"></tbody></table>
   <div class="dim" id="wishEmpty">空。登记后可在此转成追剧或立即下载。</div>
 </div>
 
 <div class="card">
-  <h2>📺 追剧列表</h2>
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg> 追剧列表</h2>
   <div class="row mb">
     <input type="text" id="showName" placeholder="剧名">
-    <input type="text" id="showLast" placeholder="已看到 S02E06" style="width:150px" onkeydown="if(event.key=='Enter')addShow()">
+    <input type="text" id="showLast" placeholder="已看到 S02E06" style="width:130px" onkeydown="if(event.key=='Enter')addShow()">
     <button onclick="addShow()">登记追剧</button>
   </div>
   <table><tbody id="showList"></tbody></table>
+</div>
 </div>
 </div>
 
 <!-- ============ 设置 ============ -->
 <div class="page" id="page-cfg">
 <div class="card">
-  <h2>📁 存储与下载目录</h2>
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> 存储与下载目录</h2>
   <div class="dim mb">设置光鸭云盘网盘内的转存归档根目录，以及最终下载回 NAS 的本地媒体库根目录。</div>
-  <table>
-    <tbody>
-      <tr><td style="width:180px">NAS 媒体库路径</td>
-          <td><input id="cfgMediaRoot" type="text" style="width:320px" placeholder="/vol3/1000/媒体库2">
-          <span class="dim">— 本地存储绝对路径（剧集和电影将自动存放于此目录下）</span></td></tr>
-      <tr><td>云盘根目录</td>
-          <td><input id="cfgCloudRoot" type="text" style="width:200px" placeholder="自动下载">
-          <span class="dim">— 光鸭网盘中的顶层存放文件夹名称</span></td></tr>
-    </tbody>
-  </table>
-  <div class="mt"><button class="mini" onclick="saveDir()">💾 保存路径设置</button></div>
-  <div class="dim mt" id="dirSaved"></div>
+  <div class="cfg-group">
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">NAS 媒体库路径</div>
+        <div class="dim">本地存储绝对路径（剧集和电影将自动存放于此目录下）</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="cfgMediaRoot" type="text" placeholder="/vol3/1000/媒体库2" style="width:300px">
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">云盘根目录</div>
+        <div class="dim">光鸭网盘中的顶层存放文件夹名称</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="cfgCloudRoot" type="text" placeholder="自动下载" style="width:200px">
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="card mt">
-  <h2>⚙️ 下载节奏设置</h2>
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> 下载节奏设置</h2>
   <div class="dim mb">控制已上线剧集的补集节奏。未上线的新集只要搜到 2160p 就自动下载（除非关闭下方开关）。</div>
-  <table>
-    <tbody>
-      <tr><td style="width:180px">每批下载集数</td>
-          <td><input id="cfgBatch" type="number" min="1" max="20" style="width:90px"> 集
-          <span class="dim">— 一次最多连续追下几集</span></td></tr>
-      <tr><td>攒批间隔</td>
-          <td><input id="cfgGap" type="number" min="0" max="168" step="0.5" style="width:90px"> 小时
-          <span class="dim">— 这批下完后隔多久再下下一批(0=不等待)</span></td></tr>
-      <tr><td>连续补集</td>
-          <td><label><input id="cfgBackfill" type="checkbox"> 开启</label>
-          <span class="dim">— 关闭后每次只追最新已上线的一集</span></td></tr>
-      <tr><td>新集自动下载</td>
-          <td><label><input id="cfgAuto" type="checkbox"> 开启</label>
-          <span class="dim">— 关闭后只登记不下载，需手动确认</span></td></tr>
-      <tr><td>追剧搜索周期</td>
-          <td><input id="cfgSearchGap" type="number" min="0" max="720" step="1" style="width:90px"> 小时
-          <span class="dim">— 多久搜一次新集(0=每次 cron 都搜, 24=每天一次)</span>
-          <div class="dim" id="cfgSearchNote" style="margin-top:4px"></div></td></tr>
-      <tr><td>每轮提交上限</td>
-          <td><input id="cfgMax" type="number" min="1" max="20" style="width:90px"> 个任务
-          <span class="dim">— 单次 cron 循环最多提交多少个</span></td></tr>
-    </tbody>
-  </table>
-  <div class="mt"><button class="mini" onclick="saveCfg()">💾 保存设置</button></div>
-  <div class="dim mt" id="cfgSaved"></div>
-</div>
-
-<div class="card">
-  <h2>🎯 资源筛选偏好</h2>
-  <div class="dim mb">决定「什么样的资源才值得下」。同时满足所有条件才会被选中；找不到符合的会跳过并在事件里提示。</div>
-  <table>
-    <tbody>
-      <tr><td style="width:180px">首选清晰度</td>
-          <td><select id="fqQuality">
-            <option value="2160p">2160p / 4K</option>
-            <option value="1080p">1080p</option>
-            <option value="any">不限（2160p 优先，其次 1080p）</option>
-          </select>
-          <span class="dim">— 默认 4K</span></td></tr>
-      <tr><td>无首选时降级</td>
-          <td><label><input id="fqFallback" type="checkbox"> 自动降级到 1080p</label>
-          <span class="dim">— 不勾选时：找不到 4K 就停下来询问你，不会擅自下 1080p</span></td></tr>
-      <tr><td>语种</td>
-          <td><select id="fqLang">
-            <option value="en_prefer">英语优先（外语版仅兜底）</option>
-            <option value="en_only">只要英语（排除含外语标签的资源）</option>
-            <option value="any">不限语种</option>
-          </select>
-          <span class="dim">— 默认「英语优先」：意/德/法/俄等外语资源排在英语版之后。未标语种的资源视为英语</span></td></tr>
-      <tr><td>允许的格式</td>
-          <td>
-            <label><input type="checkbox" class="fmtAllowed" value="mkv"> mkv</label>
-            <label><input type="checkbox" class="fmtAllowed" value="mp4"> mp4</label>
-            <label><input type="checkbox" class="fmtAllowed" value="avi"> avi</label>
-            <label><input type="checkbox" class="fmtAllowed" value="ts"> ts</label>
-            <label><input type="checkbox" class="fmtAllowed" value="iso"> iso</label>
-            <div class="dim">全都不勾 = 不限格式。勾了则只用勾选的格式（下载前用真实文件扩展名复核）</div>
-          </td></tr>
-      <tr><td>格式优先级</td>
-          <td><input id="fqPreferFmt" type="text" style="width:190px" placeholder="mkv,mp4">
-          <span class="dim">— 逗号分隔，靠前的优先；留空=不限</span></td></tr>
-      <tr><td>编码偏好</td>
-          <td><input id="fqCodec" type="text" style="width:190px" placeholder="hevc,av1,h264">
-          <span class="dim">— 逗号分隔，靠前的优先；留空=不限</span></td></tr>
-      <tr><td>片源偏好</td>
-          <td><input id="fqSource" type="text" style="width:190px" placeholder="remux,bluray,web">
-          <span class="dim">— 逗号分隔；留空=用默认权重(REMUX&gt;BluRay&gt;WEB)</span></td></tr>
-      <tr><td>优先 HDR/杜比视界</td>
-          <td><label><input id="fqHdr" type="checkbox"> 开启</label>
-          <span class="dim">— 同条件下优先 HDR / Dolby Vision 版本</span></td></tr>
-      <tr><td>单集/单片大小</td>
-          <td><input id="fqSizeMin" type="number" min="0" max="2000" step="0.5" style="width:80px"> ~
-              <input id="fqSizeMax" type="number" min="0" max="2000" step="0.5" style="width:80px"> GB
-          <span class="dim">— 0 表示不限。超出区间的资源直接跳过（防止整季包/超小低码率）</span></td></tr>
-    </tbody>
-  </table>
-  <div class="mt"><button class="mini" onclick="saveFq()">💾 保存偏好</button></div>
-  <div class="dim mt" id="fqSaved"></div>
+  <div class="cfg-group">
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">每批下载集数</div>
+        <div class="dim">一次最多连续追下几集</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="cfgBatch" type="number" min="1" max="20" style="width:80px"> <span class="dim">集</span>
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">攒批间隔</div>
+        <div class="dim">这批下完后隔多久再下下一批（0 = 不等待）</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="cfgGap" type="number" min="0" max="168" step="0.5" style="width:80px"> <span class="dim">小时</span>
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">连续补集</div>
+        <div class="dim">关闭后每次只追最新已上线的一集</div>
+      </div>
+      <div class="cfg-ctrl">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input id="cfgBackfill" type="checkbox"> <span>开启</span></label>
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">新集自动下载</div>
+        <div class="dim">关闭后只登记不下载，需手动确认</div>
+      </div>
+      <div class="cfg-ctrl">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input id="cfgAuto" type="checkbox"> <span>开启</span></label>
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">追剧搜索周期</div>
+        <div class="dim">多久搜一次新集（0 = 每次循环都搜，24 = 每天一次）</div>
+      </div>
+      <div class="cfg-ctrl" style="flex-direction:column;align-items:flex-end;gap:4px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <input id="cfgSearchGap" type="number" min="0" max="720" step="1" style="width:80px"> <span class="dim">小时</span>
+        </div>
+        <div class="dim" id="cfgSearchNote" style="font-size:11px"></div>
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">每轮提交上限</div>
+        <div class="dim">单次 cron 循环最多提交多少个下载任务</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="cfgMax" type="number" min="1" max="20" style="width:80px"> <span class="dim">个任务</span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="card mt">
-  <h2>🔌 Jackett 服务配置</h2>
-  <div class="dim mb">如未手动指定，系统会自动扫描 NAS 各存储卷及运行进程定位 ServerConfig.json 并提取 APIKey。若提示找不到或部署在其它机器，可在此手动指定。</div>
-  <table class="form-table">
-    <tbody>
-      <tr><td>服务地址</td>
-          <td><input id="cfgJtUrl" type="text" style="width:260px" placeholder="http://127.0.0.1:9117">
-          <span class="dim">— 默认 http://127.0.0.1:9117</span></td></tr>
-      <tr><td>APIKey</td>
-          <td><input id="cfgJtKey" type="password" style="width:260px" placeholder="留空则自动从配置文件读取">
-          <span class="dim">— 在 Jackett 控制台右上角可复制</span></td></tr>
-      <tr><td>配置文件路径</td>
-          <td><input id="cfgJtPath" type="text" style="width:360px" placeholder="留空自动检测（如 /vol1/@appdata/jackett/data/ServerConfig.json）">
-          <span class="dim">— 留空自动搜索所有 /vol*/@appdata/jackett/data/ 卷</span></td></tr>
-    </tbody>
-  </table>
-  <div class="mt"><button class="mini" onclick="saveJt()">💾 保存 Jackett 配置</button></div>
-  <div class="dim mt" id="jtSaved"></div>
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> 资源筛选偏好</h2>
+  <div class="dim mb">决定「什么样的资源才值得下」。同时满足所有条件才会被选中；找不到符合的会跳过并在事件里提示。</div>
+  <div class="cfg-group">
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">首选清晰度</div>
+        <div class="dim">默认 4K (2160p)</div>
+      </div>
+      <div class="cfg-ctrl">
+        <select id="fqQuality">
+          <option value="2160p">2160p / 4K</option>
+          <option value="1080p">1080p</option>
+          <option value="any">不限（2160p 优先，其次 1080p）</option>
+        </select>
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">无首选时降级</div>
+        <div class="dim">不勾选时：找不到 4K 就停下来提示，不会擅自下载 1080p</div>
+      </div>
+      <div class="cfg-ctrl">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input id="fqFallback" type="checkbox"> <span>自动降级到 1080p</span></label>
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">语种偏好</div>
+        <div class="dim">默认「英语优先」：外语资源排在英语之后。未标语种视为英语</div>
+      </div>
+      <div class="cfg-ctrl">
+        <select id="fqLang">
+          <option value="en_prefer">英语优先（外语版仅兜底）</option>
+          <option value="en_only">只要英语（排除外语标签）</option>
+          <option value="any">不限语种</option>
+        </select>
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">允许的格式</div>
+        <div class="dim">全都不勾 = 不限格式。勾选后下载前将用真实扩展名复核</div>
+      </div>
+      <div class="cfg-ctrl" style="flex-wrap:wrap;justify-content:flex-end">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="fmtAllowed" value="mkv"> mkv</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="fmtAllowed" value="mp4"> mp4</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="fmtAllowed" value="avi"> avi</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="fmtAllowed" value="ts"> ts</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="fmtAllowed" value="iso"> iso</label>
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">格式优先级</div>
+        <div class="dim">逗号分隔，靠前的优先；留空 = 不限</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="fqPreferFmt" type="text" placeholder="mkv,mp4" style="width:180px">
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">编码偏好</div>
+        <div class="dim">逗号分隔，靠前的优先；留空 = 不限</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="fqCodec" type="text" placeholder="hevc,av1,h264" style="width:180px">
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">片源偏好</div>
+        <div class="dim">逗号分隔；留空 = 默认权重 (REMUX > BluRay > WEB)</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="fqSource" type="text" placeholder="remux,bluray,web" style="width:180px">
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">HDR / 杜比视界优先</div>
+        <div class="dim">同条件下优先选择 HDR / Dolby Vision 版本</div>
+      </div>
+      <div class="cfg-ctrl">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input id="fqHdr" type="checkbox"> <span>开启</span></label>
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">单集 / 单片大小区间</div>
+        <div class="dim">0 表示不限。超出区间的资源直接跳过（防止整季包或超小低码率）</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="fqSizeMin" type="number" min="0" max="2000" step="0.5" style="width:75px">
+        <span class="dim">~</span>
+        <input id="fqSizeMax" type="number" min="0" max="2000" step="0.5" style="width:75px">
+        <span class="dim">GB</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt">
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2v8"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/><path d="M22 22H2"/><path d="m16 6-4 4-4-4"/><path d="M16 18a4 4 0 0 0-8 0"/></svg> Jackett 服务配置</h2>
+  <div class="dim mb">如未手动指定，系统会自动扫描 NAS 各存储卷及运行进程定位 ServerConfig.json 并提取 APIKey。</div>
+  <div class="cfg-group">
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">服务地址</div>
+        <div class="dim">默认 http://127.0.0.1:9117</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="cfgJtUrl" type="text" placeholder="http://127.0.0.1:9117" style="width:240px">
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">APIKey</div>
+        <div class="dim">在 Jackett 控制台右上角可复制；留空则自动从配置文件读取</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="cfgJtKey" type="password" placeholder="留空自动读取" style="width:240px">
+      </div>
+    </div>
+    <div class="cfg-row">
+      <div class="cfg-label">
+        <div class="cfg-title">配置文件路径</div>
+        <div class="dim">留空自动搜索所有 /vol*/@appdata/jackett/data/ 卷</div>
+      </div>
+      <div class="cfg-ctrl">
+        <input id="cfgJtPath" type="text" placeholder="留空自动检测" style="width:300px">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cfg-bottom-bar">
+  <div class="dim" id="cfgStatusText">配置修改后点击保存即可全局生效</div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <button class="ghost" onclick="resetCfg()">重置</button>
+    <button onclick="saveAllCfg()">保存所有设置</button>
+  </div>
 </div>
 </div>
 
 <!-- ============ 日志 ============ -->
 <div class="page" id="page-log">
 <div class="card">
-  <h2>📜 运行日志</h2>
+  <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> 运行日志</h2>
   <div class="dim mb" id="logHelp" style="line-height:1.5">
-    💡 <b>关键动作日志 (events.log)</b>：专门记录高价值的业务里程碑，如「云任务添加成功」、「开始 NAS 下载并指定存储路径」、「中文字幕下载与转码匹配」、「任务全部完成」等核心事件。
+    <b>关键动作日志 (events.log)</b>：专门记录高价值的业务里程碑，如「云任务添加成功」、「开始 NAS 下载并指定存储路径」、「中文字幕下载与转码匹配」、「任务全部完成」等核心事件。
   </div>
   <div class="mb" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <select id="logSrc" onchange="onLogSrcChange()">
-      <option value="events">📌 关键动作日志 (events.log) — 落地完成/字幕匹配/核心动作</option>
-      <option value="run">🔍 调度与搜索日志 (run.log) — 后台轮询/资源匹配细节/异常调试</option>
-      <option value="cron">⏰ 定时唤醒日志 (cron.log) — 系统每小时定时执行的输出</option>
-      <option value="web">🌐 网页操作日志 (webjobs.log) — 页面提交的搜索与下载执行输出</option>
+      <option value="events">关键动作日志 (events.log) — 落地完成/字幕匹配/核心动作</option>
+      <option value="run">调度与搜索日志 (run.log) — 后台轮询/资源匹配细节/异常调试</option>
+      <option value="cron">定时唤醒日志 (cron.log) — 系统每小时定时执行的输出</option>
+      <option value="web">网页操作日志 (webjobs.log) — 页面提交的搜索与下载执行输出</option>
     </select>
     <select id="logLines" onchange="refreshLog()">
       <option value="100">最近 100 行</option>
@@ -341,67 +574,65 @@ applyTheme((()=>{try{return localStorage.getItem('autodl_theme')}catch(e){return
 document.querySelectorAll('#side nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
 showPage((()=>{try{return localStorage.getItem('autodl_page')}catch(e){return null}})()||'home',true);
 
-async function saveDir(){
+async function saveAllCfg(){
   const mr = $('#cfgMediaRoot').value.trim();
   const cr = $('#cfgCloudRoot').value.trim();
   if(!mr) return flash('NAS 媒体库路径不能为空', false);
   if(!cr) return flash('云盘根目录不能为空', false);
-  try{
-    await jpost('/api/config', {media_root: mr, cloud_root: cr});
-    $('#dirSaved').textContent = '已保存 ' + new Date().toLocaleTimeString();
-    flash('存储目录已保存');
-    delete $('#cfgMediaRoot').dataset.init;
-    delete $('#cfgCloudRoot').dataset.init;
-    refresh();
-  }catch(e){flash(e, false)}
-}
 
-async function saveCfg(){
-  const body={batch_size:+$('#cfgBatch').value, batch_interval_hours:+$('#cfgGap').value,
-              backfill_enabled:$('#cfgBackfill').checked, auto_download_new:$('#cfgAuto').checked,
-              max_submit_per_run:+$('#cfgMax').value,
-              search_interval_hours:+$('#cfgSearchGap').value};
-  try{await jpost('/api/config',body);
-    $('#cfgSaved').textContent='已保存 '+new Date().toLocaleTimeString();
-    flash('设置已保存');
-    ['#cfgBatch','#cfgGap','#cfgBackfill','#cfgAuto','#cfgMax','#cfgSearchGap'].forEach(k=>delete $(k).dataset.init);
-    refresh();
-  }catch(e){flash(e,false)}
-}
-
-async function saveFq(){
   const allowed=[...document.querySelectorAll('.fmtAllowed')].filter(x=>x.checked).map(x=>x.value);
-  const body={wanted_quality:$('#fqQuality').value,
-              quality_fallback:$('#fqFallback').checked?['1080p']:[],
-              allow_format:allowed,
-              prefer_format:$('#fqPreferFmt').value,
-              prefer_codec:$('#fqCodec').value,
-              prefer_source:$('#fqSource').value,
-              hdr_prefer:$('#fqHdr').checked,
-              wanted_lang:$('#fqLang').value,
-              size_min_gb:+$('#fqSizeMin').value||0,
-              size_max_gb:+$('#fqSizeMax').value||0};
-  try{await jpost('/api/config',body);
-    $('#fqSaved').textContent='已保存 '+new Date().toLocaleTimeString();
-    flash('筛选偏好已保存');
-    ['#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax','#fqLang']
-      .forEach(k=>delete $(k).dataset.init);
+  const body={
+    media_root: mr,
+    cloud_root: cr,
+    batch_size: +$('#cfgBatch').value,
+    batch_interval_hours: +$('#cfgGap').value,
+    backfill_enabled: $('#cfgBackfill').checked,
+    auto_download_new: $('#cfgAuto').checked,
+    max_submit_per_run: +$('#cfgMax').value,
+    search_interval_hours: +$('#cfgSearchGap').value,
+    wanted_quality: $('#fqQuality').value,
+    quality_fallback: $('#fqFallback').checked ? ['1080p'] : [],
+    allow_format: allowed,
+    prefer_format: $('#fqPreferFmt').value,
+    prefer_codec: $('#fqCodec').value,
+    prefer_source: $('#fqSource').value,
+    hdr_prefer: $('#fqHdr').checked,
+    wanted_lang: $('#fqLang').value,
+    size_min_gb: +$('#fqSizeMin').value || 0,
+    size_max_gb: +$('#fqSizeMax').value || 0,
+    jackett_url: $('#cfgJtUrl').value.trim() || 'http://127.0.0.1:9117',
+    jackett_apikey: $('#cfgJtKey').value.trim(),
+    jackett_config: $('#cfgJtPath').value.trim()
+  };
+
+  try{
+    await jpost('/api/config', body);
+    const timeStr = new Date().toLocaleTimeString();
+    const stEl = $('#cfgStatusText');
+    if(stEl) stEl.textContent = '所有设置已于 ' + timeStr + ' 成功保存';
+    flash('所有设置已保存');
+    ['#cfgMediaRoot','#cfgCloudRoot','#cfgBatch','#cfgGap','#cfgBackfill','#cfgAuto','#cfgMax','#cfgSearchGap',
+     '#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax','#fqLang',
+     '#cfgJtUrl','#cfgJtKey','#cfgJtPath'].forEach(k=>{const el=$(k);if(el)delete el.dataset.init});
     document.querySelectorAll('.fmtAllowed').forEach(x=>delete x.dataset.init);
     refresh();
-  }catch(e){flash(e,false)}
+  }catch(e){
+    flash('保存设置失败: ' + e, false);
+  }
 }
 
-async function saveJt(){
-  const body={jackett_url:$('#cfgJtUrl').value.trim()||'http://127.0.0.1:9117',
-              jackett_apikey:$('#cfgJtKey').value.trim(),
-              jackett_config:$('#cfgJtPath').value.trim()};
-  try{await jpost('/api/config',body);
-    $('#jtSaved').textContent='已保存 '+new Date().toLocaleTimeString();
-    flash('Jackett 配置已保存');
-    ['#cfgJtUrl','#cfgJtKey','#cfgJtPath'].forEach(k=>delete $(k).dataset.init);
-    refresh();
-  }catch(e){flash(e,false)}
+function resetCfg(){
+  ['#cfgMediaRoot','#cfgCloudRoot','#cfgBatch','#cfgGap','#cfgBackfill','#cfgAuto','#cfgMax','#cfgSearchGap',
+   '#fqQuality','#fqFallback','#fqPreferFmt','#fqCodec','#fqSource','#fqHdr','#fqSizeMin','#fqSizeMax','#fqLang',
+   '#cfgJtUrl','#cfgJtKey','#cfgJtPath'].forEach(k=>{const el=$(k);if(el)delete el.dataset.init});
+  document.querySelectorAll('.fmtAllowed').forEach(x=>delete x.dataset.init);
+  refresh().then(()=>{
+    flash('已重置为当前保存的设置');
+    const stEl = $('#cfgStatusText');
+    if(stEl) stEl.textContent = '已重置为当前保存的设置';
+  });
 }
+const saveDir = saveAllCfg, saveCfg = saveAllCfg, saveFq = saveAllCfg, saveJt = saveAllCfg;
 
 async function addWish(){
   const name=$('#wishName').value.trim(); if(!name)return flash('先填名称',false);
@@ -415,7 +646,9 @@ async function addShow(){
 }
 function rmShow(name){if(confirm('移除追剧: '+name+'?'))jpost('/api/rmshow',{name}).then(refresh)}
 let _searchTimer = null;
+let _lastSearchData = null;
 function renderSearchResults(q, d){
+  _lastSearchData = d;
   const box=$('#searchRes');
   box.style.display='block';
   let h=`<div class="row mb" style="justify-content:space-between">
@@ -423,7 +656,7 @@ function renderSearchResults(q, d){
     <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 关闭结果</button>
   </div>`;
   if(d.recognized)h+=`<div class="dim mb">🀄 识别: ${esc(d.orig)} → <b>${esc(d.recognized)}</b></div>`;
-  if(d.best)h+=`<div class="item" style="background:var(--hov);border-radius:8px;padding:8px 12px"><div class="t">★ 4K首选推荐: <b>${esc(d.best)}</b></div><button class="mini" onclick="download('${esc(q)}')">⬇ 下载4K推荐</button></div>`;
+  if(d.best)h+=`<div class="item" style="background:var(--hov);border-radius:8px;padding:8px 12px"><div class="t">★ 4K首选推荐: <b>${esc(d.best)}</b></div><button class="mini" onclick="downloadBest('${esc(q)}')">⬇ 下载4K推荐</button></div>`;
   if(!d.q4k.length && d.lo1080.length){
     h+=`<div class="item" style="background:var(--flash-err-bg);border:1px solid var(--bad);border-radius:8px;padding:10px 12px;margin-top:8px">
       <div class="t" style="color:var(--bad)">⚠️ <b>未检索到 4K (2160p) 资源</b>，检测到 ${d.lo1080.length} 条优质 1080p 候选</div>
@@ -434,16 +667,16 @@ function renderSearchResults(q, d){
     </div>`;
   }
   if(d.q4k.length){
-    d.q4k.forEach(r=>{
+    d.q4k.forEach((r, idx)=>{
       h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${r.langs&&r.langs.length?' · '+r.langs.join(',').toUpperCase():''}</span></div>
-      <button class="mini" onclick="download('${esc(q)}')">⬇ 下载4K</button></div>`;
+      <button class="mini" onclick="downloadItem('${esc(q)}','4k',${idx})">⬇ 下载4K</button></div>`;
     });
   }
   if(d.lo1080.length){
     h+=`<div class="dim mt" style="font-weight:600">1080p 备选资源:</div>`;
-    d.lo1080.forEach(r=>{
+    d.lo1080.forEach((r, idx)=>{
       h+=`<div class="item"><div class="t"><b>${esc(r.title)}</b><span class="dim">1080p · ${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}</span></div>
-      <button class="mini ghost" onclick="download1080('${esc(q)}')">⬇ 下载1080p</button></div>`;
+      <button class="mini ghost" onclick="downloadItem('${esc(q)}','1080',${idx})">⬇ 下载1080p</button></div>`;
     });
   }
   if(!d.q4k.length&&!d.lo1080.length)h+='<div class="dim mt">未检索到可用资源</div>';
@@ -494,6 +727,26 @@ async function doSearch(){
 function esc(s){return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'&lt;')}
 function download(q){jpost('/api/add',{name:q}).then(()=>flash('已后台提交下载(优先4K): '+q)).catch(e=>flash(e,false))}
 function download1080(q){jpost('/api/add',{name:q,allow1080:true}).then(()=>flash('已提交(降级1080p): '+q)).catch(e=>flash(e,false))}
+function downloadBest(q){
+  const payload = {name: q};
+  if (_lastSearchData && _lastSearchData.best) payload.exact_title = _lastSearchData.best;
+  if (_lastSearchData && _lastSearchData.best_magnet) payload.magnet = _lastSearchData.best_magnet;
+  if (_lastSearchData && _lastSearchData.best_infohash) payload.infohash = _lastSearchData.best_infohash;
+  jpost('/api/add', payload).then(()=>flash('已提交4K推荐下载: '+q)).catch(e=>flash(e,false));
+}
+function downloadItem(q, type, idx){
+  const list = (type === '4k') ? (_lastSearchData && _lastSearchData.q4k) : (_lastSearchData && _lastSearchData.lo1080);
+  const item = list && list[idx];
+  const payload = {name: q};
+  if (type === '1080') payload.allow1080 = true;
+  if (item) {
+    if (item.title) payload.exact_title = item.title;
+    if (item.magnet_url) payload.magnet = item.magnet_url;
+    if (item.infohash) payload.infohash = item.infohash;
+  }
+  const label = (item && item.title) ? item.title.slice(0, 35) + '...' : q;
+  jpost('/api/add', payload).then(()=>flash('已提交所选资源下载: '+label)).catch(e=>flash(e,false));
+}
 async function wishTrack4K(name){try{await jpost('/api/wish',{name,kind:'auto'});flash('已登记心愿持续追踪4K: '+name);refresh()}catch(e){flash(e,false)}}
 async function wishToTV(name){showPage('lib');$('#showName').value=name;addShow()}
 async function wishToDL(name){jpost('/api/add',{name}).then(()=>flash('已提交下载(优先4K): '+name)).catch(e=>flash(e,false))}
@@ -515,17 +768,30 @@ async function refresh(){
       const running=w.tasks&&w.tasks.some(t=>t.stage!=='done'&&t.stage!=='failed');
       const isDone=w.status==='done'||(w.tasks&&w.tasks.length>0&&w.tasks.every(t=>t.stage==='done'));
       let tagHtml='';
-      if(running) tagHtml='<span class="tag nas">下载推进中</span>';
-      else if(isDone) tagHtml='<span class="tag done">✓ 已完成入库</span>';
+      if(running) tagHtml='<span class="tag nas">推进中</span>';
+      else if(isDone) tagHtml='<span class="tag done">✓ 已完成</span>';
       else if(w.waiting_note) tagHtml=`<span class="tag cloud">${esc(w.waiting_note)}</span>`;
-      return `<tr><td><b>${esc(w.name)}</b> ${tagHtml}
-        <div class="dim">${w.kind==='tv'?'剧集':w.kind==='movie'?'电影':'自动'} · 登记于 ${new Date(w.added*1000).toLocaleDateString()}</div>
-        <div class="mt">
-          ${w.kind==='tv'||w.kind==='auto'?`<button class="mini" onclick="wishToTV('${esc(w.name)}')">📺 转追剧</button>`:''}
-          <button class="mini" onclick="wishToDL('${esc(w.name)}')">⬇ 优先4K下载</button>
-          <button class="mini ghost" onclick="wishToDL1080('${esc(w.name)}')">⬇ 降级1080p</button>
-          <button class="mini ghost" onclick="delWish('${esc(k)}')">✕</button>
-        </div></td></tr>`;
+      return `<tr><td>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+          <div style="min-width:0;flex:1">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <b>${esc(w.name)}</b> ${tagHtml}
+            </div>
+            <div class="dim" style="margin-top:2px">${w.kind==='tv'?'剧集':w.kind==='movie'?'电影':'自动'} · ${new Date(w.added*1000).toLocaleDateString()}</div>
+          </div>
+          <div class="act-group">
+            <button class="mini" onclick="wishToDL('${esc(w.name)}')">下载4K</button>
+            <div class="drop-menu">
+              <button class="mini ghost drop-btn" title="更多操作">⋯</button>
+              <div class="drop-content">
+                ${w.kind==='tv'||w.kind==='auto'?`<a href="javascript:void(0)" onclick="wishToTV('${esc(w.name)}')">📺 转为追剧</a>`:''}
+                <a href="javascript:void(0)" onclick="wishToDL1080('${esc(w.name)}')">⬇ 降级 1080p</a>
+                <a href="javascript:void(0)" class="text-bad" onclick="delWish('${esc(k)}')">✕ 移除心愿</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </td></tr>`;
     }).join('');
     // 追剧
     $('#showList').innerHTML=shows.map(s=>`<tr><td><b>${esc(s.name)}</b>
@@ -536,10 +802,18 @@ async function refresh(){
       `<div class="item"><div class="t"><b>${esc(s.name)}</b> <span class="dim">S${String(s.last[0]).padStart(2,'0')}E${String(s.last[1]).padStart(2,'0')}</span></div></div>`).join(''):'暂无，去「片单」登记';
     // 侧栏计数
     $('#navCounts').textContent=`${keys.length}/${shows.length}`;
-    // 任务
+    // 任务与状态脉搏
     const act=tasks.filter(t=>t.stage!=='done'&&t.stage!=='failed');
     const recent=tasks.filter(t=>t.stage==='done'||t.stage==='failed').slice(0,6);
+    const todayStart = new Date().setHours(0,0,0,0)/1000;
+    const doneToday = tasks.filter(t=>t.stage==='done'&&(!t.added||t.added>=todayStart)).length;
+    const kpiAct=$('#kpiActive'), kpiShw=$('#kpiShows'), kpiDn=$('#kpiDone');
+    if(kpiAct) kpiAct.textContent=act.length;
+    if(kpiShw) kpiShw.textContent=shows.length;
+    if(kpiDn) kpiDn.textContent=doneToday;
+
     $('#taskEmpty').style.display=tasks.length?'none':'block';
+    const stageNames = {cloud:'网盘转存', nas:'NAS下载', sub:'字幕转配', done:'入库完成', failed:'失败'};
     $('#taskList').innerHTML=act.concat(recent).map(t=>{
       let detail=t.error?`<span style="color:var(--bad)">${esc(t.error)}</span>`:'';
       if(t.nas && t.nas.length){
@@ -557,7 +831,7 @@ async function refresh(){
       }
       return `<tr>
         <td><b>${esc(t.label||t.kind)}</b></td>
-        <td><span class="tag ${t.stage}">${t.stage}</span></td>
+        <td><span class="tag ${t.stage}">${stageNames[t.stage]||t.stage}</span></td>
         <td>${detail||'<span class=dim>-</span>'}</td>
         <td style="text-align:right"><button class="mini ghost" title="删除任务" onclick="delTask('${esc(t.key)}')">✕</button></td>
       </tr>`;
@@ -637,7 +911,18 @@ async function refreshLog(){
     const src=$('#logSrc').value, lines=$('#logLines').value;
     $('#logHelp').innerHTML = LOG_TIPS[src] || '';
     const d=await jget(`/api/logs?src=${src}&lines=${lines}`);
-    box.textContent=(d.tail||[]).join('\n')||'（暂无日志）';
+    const raw=(d.tail||[]);
+    if(!raw.length){
+      box.textContent='（暂无日志）';
+    }else{
+      box.innerHTML=raw.map(l=>{
+        let h=esc(l);
+        return h.replace(/\b(ERROR|FAIL|FAILED|Err)\b/gi,'<span style="color:#ef4444;font-weight:600">$1</span>')
+                .replace(/\b(WARN|WARNING)\b/gi,'<span style="color:#f59e0b;font-weight:600">$1</span>')
+                .replace(/\b(INFO|DEBUG)\b/gi,'<span style="color:#3b82f6;font-weight:600">$1</span>')
+                .replace(/(成功|完成|入库|MATCH|OK|✓)/g,'<span style="color:#10b981;font-weight:600">$1</span>');
+      }).join('\n');
+    }
     $('#logMeta').textContent=`${d.file} · ${d.lines} 行`;
   }catch(e){box.textContent='加载失败: '+e}
 }

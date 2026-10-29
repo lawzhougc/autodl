@@ -124,11 +124,15 @@ def extract_infohash(s):
     return ""
 
 # ---------------------------------------------------------------- HTTP
+class MagnetRedirectException(Exception):
+    def __init__(self, url):
+        self.url = url
+
 class MagnetRedirectHandler(urllib.request.HTTPRedirectHandler):
     """当上游 301/302 重定向到 magnet: 协议时阻止抛出异常，以便捕获磁链"""
     def redirect_request(self, req, fp, code, msg, hdrs, newurl):
         if newurl and newurl.startswith("magnet:"):
-            return None
+            raise MagnetRedirectException(newurl)
         return super().redirect_request(req, fp, code, msg, hdrs, newurl)
 
 def http(url, data=None, headers=None, timeout=30, method=None):
@@ -460,24 +464,106 @@ def bt4g_search(query):
                     "pub": tag("pubDate")})
     return out
 
+def extract_torrent_infohash(raw: bytes) -> str:
+    """从 .torrent 文件二进制数据解析根字典并计算 info 的 SHA1 infohash"""
+    def skip_bencode(data: bytes, pos: int) -> int:
+        ch = data[pos:pos+1]
+        if ch == b'i':
+            end = data.find(b'e', pos + 1)
+            if end == -1: raise ValueError("invalid bencoded int")
+            return end + 1
+        elif ch.isdigit():
+            colon = data.find(b':', pos)
+            if colon == -1: raise ValueError("invalid bencoded str")
+            slen = int(data[pos:colon])
+            return colon + 1 + slen
+        elif ch in (b'l', b'd'):
+            curr = pos + 1
+            while data[curr:curr+1] != b'e':
+                curr = skip_bencode(data, curr)
+            return curr + 1
+        raise ValueError(f"unknown bencode tag: {ch}")
+
+    try:
+        if not raw or raw[:1] != b'd':
+            return ""
+        pos = 1
+        while pos < len(raw) and raw[pos:pos+1] != b'e':
+            colon = raw.find(b':', pos)
+            if colon == -1: break
+            klen = int(raw[pos:colon])
+            kstart = colon + 1
+            kend = kstart + klen
+            key = raw[kstart:kend]
+            val_start = kend
+            val_end = skip_bencode(raw, val_start)
+            if key == b'info':
+                return hashlib.sha1(raw[val_start:val_end]).hexdigest().upper()
+            pos = val_end
+    except Exception:
+        pass
+    return ""
+
+def extract_torrent_meta(raw: bytes):
+    """从 .torrent 种子提取 infohash 与 tracker"""
+    ih = extract_torrent_infohash(raw)
+    trackers = []
+    try:
+        m_ann = re.search(rb"8:announce(\d+):", raw)
+        if m_ann:
+            l = int(m_ann.group(1))
+            start = m_ann.end()
+            ann = raw[start:start+l].decode("utf-8", "ignore")
+            if ann.startswith("http://") or ann.startswith("https://") or ann.startswith("udp://"):
+                trackers.append(ann)
+    except Exception:
+        pass
+    return ih, trackers
+
 def to_magnet(res):
-    """结果 → (magnet, files_hint) ; 仅有种子的先下载字节再resolve"""
-    if res.get("magnet"):
-        return res["magnet"], None
-    if res.get("link"):
+    """结果 → (magnet, resolved_hint) ; 种子链接先下载字节并用光鸭或本地快速解析"""
+    mag = res.get("magnet") or ""
+    if mag and mag.startswith("magnet:"):
+        return mag, None
+    link = res.get("link") or (mag if (mag.startswith("http://") or mag.startswith("https://")) else "")
+    if link:
         opener = urllib.request.build_opener(MagnetRedirectHandler)
         try:
-            req = urllib.request.Request(res["link"], headers={"User-Agent": "Mozilla/5.0"})
+            req = urllib.request.Request(link, headers={"User-Agent": "Mozilla/5.0"})
             with opener.open(req, timeout=40) as resp:
                 raw = resp.read()
-                d = gy_resolve_torrent(raw)
-                ih = d.get("infohash") or res.get("infohash")
-                if not ih: return None, None
-                return f"magnet:?xt=urn:btih:{ih.upper()}", None
+                ih, trackers = extract_torrent_meta(raw)
+                d = None
+                try:
+                    d = gy_resolve_torrent(raw)
+                except Exception as ge:
+                    log(f"光鸭上传解析种子字节异常: {ge}")
+                if not ih and d:
+                    data_obj = d.get("data") if isinstance(d.get("data"), dict) else {}
+                    ih = data_obj.get("infohash") or d.get("infohash") or data_obj.get("hash") or d.get("hash")
+                if not ih:
+                    ih = res.get("infohash")
+                if not ih:
+                    return None, None
+                mag_out = f"magnet:?xt=urn:btih:{ih.upper()}"
+                if res.get("title"):
+                    mag_out += f"&dn={urllib.parse.quote(res['title'])}"
+                for tr in trackers[:3]:
+                    mag_out += f"&tr={urllib.parse.quote(tr)}"
+                return mag_out, d
+        except MagnetRedirectException as me:
+            return me.url, None
         except urllib.error.HTTPError as e:
             loc = e.headers.get("Location") or ""
             if e.code in (301, 302, 303, 307, 308) and loc.startswith("magnet:"):
                 return loc, None
+            if res.get("infohash"):
+                return f"magnet:?xt=urn:btih:{res['infohash'].upper()}", None
+            raise
+        except Exception as e:
+            log(f"下载种子并转换磁链失败 ({link}): {e}")
+            if res.get("infohash"):
+                return f"magnet:?xt=urn:btih:{res['infohash'].upper()}", None
             raise
     return None, None
 
@@ -679,7 +765,7 @@ def clean_release(title):
     return sanitize(re.sub(r"\s+", " ", t).strip(" .-")[:70])
 
 def is_video(name):
-    return name.lower().endswith((".mkv", ".mp4", ".ts", ".m2ts", ".avi", ".mov", ".wmv"))
+    return name.lower().endswith((".mkv", ".mp4", ".ts", ".m2ts", ".avi", ".mov", ".wmv", ".flv", ".rmvb"))
 
 def ep_from_name(name):
     m = RE_EP.search(name)
@@ -1048,25 +1134,49 @@ def best_for_movie(results, quality="2160p"):
 def submit(res, label, parent_path, wanted_eps=None, min_mb=None):
     """resolve → 选文件 → 建云任务。返回 (taskId, magnet, picked_files)"""
     gy_check_login()
-    magnet, _ = to_magnet(res)
+    magnet, resolved_hint = to_magnet(res)
     if not magnet: raise RuntimeError("无法获得磁链")
-    resolved = gy_resolve(magnet)
-    files = resolved.get("files") or []
+
+    resolved = None
+    if resolved_hint:
+        hint_data = resolved_hint.get("data") if isinstance(resolved_hint.get("data"), dict) else None
+        if hint_data and (hint_data.get("files") or hint_data.get("totalSize")):
+            resolved = hint_data
+        elif resolved_hint.get("files") or resolved_hint.get("totalSize"):
+            resolved = resolved_hint
+
+    if not resolved:
+        resolved = gy_resolve(magnet)
+
+    res_data = resolved.get("data") if isinstance(resolved.get("data"), dict) else {}
+    files = resolved.get("files") or res_data.get("files") or []
+    total_size = resolved.get("totalSize") or res_data.get("totalSize") or 0
+    title_cloud = resolved.get("title") or res_data.get("title") or ""
 
     # 单文件磁力兜底: 光鸭 resolve 后 files 可能为空，但 title/totalSize 明确代表单文件
-    if not files and resolved.get("totalSize", 0) >= (min_mb or CFG["min_video_mb"]) * MB:
-        single_title = resolved.get("title") or label
-        if is_video(single_title) or (not os.path.splitext(single_title)[1] and is_video(res.get("title") or "")):
+    if not files and total_size >= (min_mb or CFG["min_video_mb"]) * MB:
+        single_title = title_cloud or label
+        if is_video(single_title) or (not os.path.splitext(single_title)[1] and (is_video(res.get("title") or "") or parse_title(res.get("title") or "").get("quality") in ("2160p", "1080p", "720p"))):
+            if not os.path.splitext(single_title)[1]:
+                single_title = f"{single_title}.mkv"
             files = [{
                 "fileIndex": 0,
                 "fileName": single_title,
-                "fileSize": resolved.get("totalSize", 0),
+                "fileSize": total_size,
                 "selected": True
             }]
 
     vids = [f for f in files if is_video(f.get("fileName") or "")
             and (f.get("fileSize") or 0) >= (min_mb or CFG["min_video_mb"]) * MB
             and "sample" not in (f.get("fileName") or "").lower()]
+
+    # 若过滤为空，但有且仅有一个大文件且无扩展名，兜底视为视频文件
+    if not vids and len(files) == 1 and (files[0].get("fileSize") or 0) >= (min_mb or CFG["min_video_mb"]) * MB:
+        fn0 = files[0].get("fileName") or ""
+        if not os.path.splitext(fn0)[1]:
+            files[0]["fileName"] = f"{fn0}.mkv"
+            vids = [files[0]]
+
     # 格式白名单: 用真实文件扩展名做二次确认(标题可能没标格式)
     allow = [x.lower() for x in (CFG.get("allow_format") or [])]
     if allow:
@@ -1087,9 +1197,29 @@ def submit(res, label, parent_path, wanted_eps=None, min_mb=None):
     if not vids:
         raise RuntimeError(f"资源中无可选视频文件(>={CFG['min_video_mb']}MB): {[f.get('fileName') for f in files][:5]}")
     # 注意: 若原始 resolve 结果中 files 为空 (单文件磁力)，光鸭 API 不接受 fileIndexes 参数 (传 [0] 会报错误码 112: 参数错误)
-    idxs = [f["fileIndex"] for f in vids] if (resolved.get("files") and len(resolved["files"]) > 0) else None
+    idxs = [f["fileIndex"] for f in vids] if (files and len(files) > 0) else None
+
+    # 确定目标文件名后缀并保持完整扩展名 (彻底解决光鸭网盘和落地 NAS 无后缀名问题)
+    vid_ext = ""
+    if vids:
+        vid_ext = os.path.splitext(vids[0].get("fileName") or "")[1].lower()
+    if not vid_ext and title_cloud:
+        vid_ext = os.path.splitext(title_cloud)[1].lower()
+    if not vid_ext or vid_ext not in (".mkv", ".mp4", ".ts", ".avi", ".mov", ".wmv", ".flv", ".rmvb"):
+        vid_ext = ".mkv"
+
+    clean_lbl = sanitize(label)
+    if idxs is None or len(vids) == 1:
+        lbl_ext = os.path.splitext(clean_lbl)[1].lower()
+        if not lbl_ext or lbl_ext not in (".mkv", ".mp4", ".ts", ".avi", ".mov", ".wmv"):
+            cloud_name = f"{clean_lbl}{vid_ext}"
+        else:
+            cloud_name = clean_lbl
+    else:
+        cloud_name = clean_lbl
+
     parent_id = gy_ensure_path(parent_path)
-    tid = gy_add_magnet(magnet, parent_id, idxs, sanitize(label))
+    tid = gy_add_magnet(magnet, parent_id, idxs, cloud_name)
     return tid, magnet, vids
 
 # ---------------------------------------------------------------- 推进任务
@@ -1148,6 +1278,9 @@ def walk_videos(fid, depth=0, default_name=None, default_size=0):
         try:
             if gy_download_url(fid):
                 name = default_name or f"file_{fid}.mkv"
+                root_n, ext_n = os.path.splitext(name)
+                if not ext_n or ext_n.lower() not in (".mkv", ".mp4", ".ts", ".avi", ".mov", ".wmv"):
+                    name = f"{root_n}.mkv"
                 return [(fid, name, default_size)]
         except Exception:
             pass
@@ -1155,7 +1288,13 @@ def walk_videos(fid, depth=0, default_name=None, default_size=0):
 
     for e in entries:
         if is_file_entry(e):
-            if is_video(e.get("fileName") or ""): out.append((e["fileId"], e["fileName"], e.get("fileSize") or 0))
+            fn = e.get("fileName") or ""
+            sz = e.get("fileSize") or 0
+            if is_video(fn):
+                out.append((e["fileId"], fn, sz))
+            elif not os.path.splitext(fn)[1] and sz >= CFG["min_video_mb"] * MB:
+                # 兼容旧版本上传无扩展名的视频文件
+                out.append((e["fileId"], f"{fn}.mkv", sz))
         else:
             out += walk_videos(e["fileId"], depth + 1)
     return out
@@ -1182,15 +1321,20 @@ def start_nas_for_task(st, k, t, fallback_name=None, fallback_size=0):
     os.chmod(target, 0o777)
     t["nas"] = []
     for fid, fname, size in picked:
-        out = os.path.join(target, sanitize(fname))
+        # 严格保证下载到 NAS 的文件名包含合法视频后缀！
+        root_fn, ext_fn = os.path.splitext(fname)
+        if not ext_fn or ext_fn.lower() not in (".mkv", ".mp4", ".ts", ".avi", ".mov", ".wmv"):
+            fname = f"{root_fn}.mkv"
+        clean_fname = sanitize(fname)
+        out = os.path.join(target, clean_fname)
         if (os.path.exists(out) and not os.path.exists(out + ".aria2")
-                and os.path.getsize(out) >= size * 0.98 and size > 0):
+                and os.path.getsize(out) >= size * 0.95 and size > 0):
             continue  # 已完整存在
         # 中断残留(prealloc 全尺寸但无下载进程): 删掉让 aria2 从头下, 否则可能秒完但内容是空的
         if os.path.exists(out + ".aria2"):
             try: os.remove(out); os.remove(out + ".aria2")
             except Exception: pass
-        tid = gy_nas_start(fid, sanitize(fname), target)
+        tid = gy_nas_start(fid, clean_fname, target)
         t["nas"].append({"nasTaskId": tid, "file": out, "size": size, "fileId": fid})
     if not t["nas"]:
         finish_task(st, k, t)
@@ -1203,61 +1347,126 @@ def phase_nas(st):
     transfers = gy_transfers()
     for k, t in list(st["tasks"].items()):
         if t["stage"] != "nas": continue
-        done, failed = True, False
+        all_completed = True
+        has_failed = False
+        target_dir = t.get("nas_dir")
+
         for n in t.get("nas", []):
-            tr = transfers.get(str(n["nasTaskId"])) or {}
-            st_status = tr.get("status")
-            # aria2 默认 prealloc: 文件瞬间预分配到全尺寸, size 判断不可靠 → 以 status 为准
-            if st_status == "completed": continue
-            if st_status in ("failed", "cancelled"):
-                failed = True; done = False; continue
-            done = False
-            if st_status in ("downloading", "getting_url", "pending"): continue
-            # 无状态(服务重启丢任务): 无 .aria2 控制文件且大小达标才算完成
-            path = n["file"]
-            if (os.path.exists(path) and not os.path.exists(path + ".aria2")
-                    and (not n["size"] or os.path.getsize(path) >= n["size"] * 0.98)):
+            tr = transfers.get(str(n.get("nasTaskId"))) or {}
+            st_status = str(tr.get("status") or "").lower()
+            st_pct = tr.get("percent")
+            try:
+                prog_val = float(str(tr.get("progress") or 0).rstrip("%").strip())
+            except Exception:
+                prog_val = 0.0
+
+            # 1. 显式完成状态检测 (支持各类 Guangya 返回形式: completed, done, success, 2, 或 percent 100)
+            is_tr_done = (st_status in ("completed", "complete", "finished", "done", "success", "2")
+                          or st_pct == 100 or prog_val >= 100.0)
+
+            if is_tr_done:
                 continue
-            failed = True  # 状态丢失且文件不完整/仍在下 → 触发重试
-        if failed:
+
+            # 2. 显式失败检测
+            if st_status in ("failed", "cancelled", "error"):
+                has_failed = True
+                all_completed = False
+                continue
+
+            # 3. 正在下载中状态
+            if st_status in ("downloading", "getting_url", "pending", "active", "waiting"):
+                all_completed = False
+                continue
+
+            # 4. transfers 中已无该任务 (Guangya 已将完成任务移出 transfers 队列，或者服务重启)
+            # 此时检查 NAS 本地磁盘实际文件是否存在并完整
+            path = n.get("file")
+            file_found = False
+
+            # (a) 首先检查登记的绝对路径
+            if path and os.path.exists(path) and not os.path.exists(path + ".aria2"):
+                sz = os.path.getsize(path)
+                expected = n.get("size", 0)
+                if not expected or sz >= expected * 0.95:
+                    file_found = True
+
+            # (b) 若登记路径未直接匹配，在 target_dir 中查找匹配的物理落地视频
+            if not file_found and target_dir and os.path.isdir(target_dir):
+                base_name = os.path.splitext(os.path.basename(path))[0] if path else ""
+                for candidate in os.listdir(target_dir):
+                    if candidate.endswith(".aria2"): continue
+                    cand_path = os.path.join(target_dir, candidate)
+                    if not os.path.isfile(cand_path): continue
+                    cand_size = os.path.getsize(cand_path)
+                    expected = n.get("size", 0)
+                    if (base_name and base_name.lower() in candidate.lower()) or (expected and cand_size >= expected * 0.95):
+                        n["file"] = cand_path
+                        file_found = True
+                        break
+
+            if file_found:
+                continue
+            else:
+                has_failed = True
+                all_completed = False
+
+        if has_failed:
             t["retries"] = t.get("retries", 0) + 1
-            if t["retries"] <= 2:
-                log(f"重试 {t['label']} (第{t['retries']}次)")
+            if t["retries"] <= 3:
+                log(f"⚠️ NAS下载未检测到完成，重试 {t['label']} (第{t['retries']}/3次)")
                 start_nas_for_task(st, k, t)
             else:
-                t["stage"] = "failed"; t["error"] = "NAS下载失败(重试2次)"
+                t["stage"] = "failed"
+                t["error"] = "NAS下载失败(重试3次未检测到落地文件)"
                 event(f"失败 {t['label']}: NAS下载失败")
             continue
-        if done:
+
+        if all_completed:
             finish_task(st, k, t)
 
 def finish_task(st, k, t):
-    t["stage"] = "done"
-    subs = []
-    for n in t.get("nas", []):
-        if not os.path.exists(n["file"]): continue
-        hint = t.get("sub_hint") or os.path.splitext(os.path.basename(n["file"]))[0][:40]
-        r = find_subtitle(n["file"], hint)
-        subs.append(f"{os.path.basename(n['file'])}: {','.join(r)}")
-    if t.get("kind") == "tv" and t.get("show"):
-        cur_shows = shows()
-        for sh in cur_shows:
-            if show_key(sh["name"]) == t["show"]:
-                s, e = t.get("ep", (0, 0))
-                if (s, e) > tuple(sh.get("last", (0, 0))):
-                    sh["last"] = [s, e]
-                    save_shows(cur_shows)
-                break
-    elif t.get("kind") == "movie":
-        wl = load_json(WISH_F, {})
-        for wk, w in wl.items():
-            if show_key(w.get("name", "")) == show_key(t.get("label", "")) or wk == show_key(t.get("label", "")):
-                w["status"] = "done"
-                save_json(WISH_F, wl)
-                break
-    st["waiting"].pop(t.get("show") or "", None)
+    t["stage"] = "done"  # 1. 率先置为 done，绝不会因为字幕失败被篡改为 failed！
     t["done_at"] = time.time()
-    event(f"完成 {t['label']} | 字幕: {'; '.join(subs) or '无视频'}")
+    st["waiting"].pop(t.get("show") or "", None)
+
+    # 2. 尝试提取/下载字幕（即使出错也不影响主任务入库）
+    subs = []
+    try:
+        for n in t.get("nas", []):
+            fpath = n.get("file")
+            if not fpath or not os.path.exists(fpath): continue
+            hint = t.get("sub_hint") or os.path.splitext(os.path.basename(fpath))[0][:40]
+            try:
+                r = find_subtitle(fpath, hint)
+                subs.append(f"{os.path.basename(fpath)}: {','.join(r)}")
+            except Exception as se:
+                log(f"字幕抓取异常({fpath}): {se}")
+    except Exception as e:
+        log(f"字幕处理外层异常: {e}")
+
+    # 3. 剧集 / 电影 心愿单状态持久化
+    try:
+        if t.get("kind") == "tv" and t.get("show"):
+            cur_shows = shows()
+            for sh in cur_shows:
+                if show_key(sh["name"]) == t["show"]:
+                    s, e = t.get("ep", (0, 0))
+                    if (s, e) > tuple(sh.get("last", (0, 0))):
+                        sh["last"] = [s, e]
+                        save_shows(cur_shows)
+                    break
+        elif t.get("kind") == "movie":
+            wl = load_json(WISH_F, {})
+            for wk, w in wl.items():
+                if show_key(w.get("name", "")) == show_key(t.get("label", "")) or wk == show_key(t.get("label", "")):
+                    w["status"] = "done"
+                    save_json(WISH_F, wl)
+                    break
+    except Exception as pe:
+        log(f"状态更新持久化异常: {pe}")
+
+    save_state(st)
+    event(f"完成 {t['label']} | 字幕: {'; '.join(subs) or '无'}")
     if CFG.get("cleanup_cloud") and t.get("cloudTaskId"):
         try: gy_post("/api/cloud-add/delete", {"taskId": t["cloudTaskId"], "deleteFile": True})
         except Exception: pass
@@ -1588,12 +1797,66 @@ def cmd_add(args):
     args.title = title
     m = RE_EP.search(title)
     st = state()
+    exact_title = getattr(args, "exact_title", "") or ""
+    direct_magnet = getattr(args, "magnet", "") or ""
+    direct_infohash = getattr(args, "infohash", "") or ""
+
+    if direct_magnet:
+        # 用户在前端或命令行明确选中某个资源，直接提交该资源，无需二次检索
+        name = show_key(title)
+        is_tv = bool(m) or is_tv_query(title)
+        clean_lbl = clean_release(exact_title or title)
+        if is_tv:
+            s, e = (int(m.group(1)), int(m.group(2))) if m else (1, 1)
+            parent_p = [CFG["cloud_root"], name]
+            nas_p = os.path.join(CFG["media_root"], name)
+            sub_hint = f"{name} S{s:02d}E{e:02d}"
+            label = f"{name} S{s:02d}E{e:02d}"
+            task_kind = "tv"
+            wanted = {(s, e)}
+        else:
+            parent_p = [CFG["cloud_root"], "电影", name]
+            nas_p = os.path.join(CFG["media_root"], "电影", name)
+            sub_hint = title[:40]
+            label = clean_lbl
+            task_kind = "movie"
+            wanted = None
+
+        is_mag = direct_magnet.startswith("magnet:")
+        res_direct = {
+            "magnet": direct_magnet if is_mag else "",
+            "link": direct_magnet if not is_mag else "",
+            "infohash": direct_infohash or (extract_infohash(direct_magnet) if is_mag else ""),
+            "title": exact_title or title,
+            "size": 0, "seeders": 1, "idx": "direct"
+        }
+        print(f"直接提交选中资源: {label}")
+        tid, magnet, vids = submit(res_direct, label, parent_p, wanted_eps=wanted)
+        k = f"t{int(time.time()*1000)}"
+        ih = extract_infohash(magnet) or direct_infohash
+        task_data = {"kind": task_kind, "label": label, "cloudTaskId": str(tid),
+                     "hash": ih, "nas_dir": nas_p, "sub_hint": sub_hint,
+                     "added": time.time(), "stage": "cloud"}
+        if is_tv and m:
+            task_data.update({"show": name, "season": int(m.group(1)), "ep": [int(m.group(1)), int(m.group(2))], "wanted": [(int(m.group(1)), int(m.group(2)))]})
+        st["tasks"][k] = task_data
+        if ih: st["processed"].append(ih)
+        save_state(st)
+        event(f"已创建指定资源云下载: {label}")
+        print(f"云任务 {tid} 已创建, 之后 run/poll 会自动推进到NAS并补字幕")
+        return
+
     if m:  # 单集
         s, e = int(m.group(1)), int(m.group(2))
         show_guess = re.split(r"\bS\d{1,2}E\d{1,3}\b", title, flags=re.I)[0]
         name = show_key(show_guess)
         results = jackett_search(title, category=5000)
-        best = best_for_episode(results, s, e, CFG["wanted_quality"])
+        best = None
+        if exact_title:
+            matches = [r for r in results if r["title"] == exact_title or exact_title in r["title"]]
+            if matches: best = matches[0]
+        if not best:
+            best = best_for_episode(results, s, e, CFG["wanted_quality"])
         if not best:
             best = prompt_or_fallback_1080(results, args, lambda r: best_for_episode([r], s, e, "1080p"))
         if not best:
@@ -1618,7 +1881,12 @@ def cmd_add(args):
     else:
         name = show_key(title)
         results = jackett_search(title, category=2000)
-        best = best_for_movie(results, CFG["wanted_quality"])
+        best = None
+        if exact_title:
+            matches = [r for r in results if r["title"] == exact_title or exact_title in r["title"]]
+            if matches: best = matches[0]
+        if not best:
+            best = best_for_movie(results, CFG["wanted_quality"])
         if not best:
             best = prompt_or_fallback_1080(results, args, lambda r: best_for_movie([r], "1080p"))
         if not best:
@@ -1733,7 +2001,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("search"); p.add_argument("title"); p.set_defaults(fn=cmd_search)
-    p = sub.add_parser("add"); p.add_argument("title"); p.add_argument("--allow1080", action="store_true"); p.set_defaults(fn=cmd_add)
+    p = sub.add_parser("add"); p.add_argument("title"); p.add_argument("--allow1080", action="store_true"); p.add_argument("--exact-title", default=""); p.add_argument("--magnet", default=""); p.add_argument("--infohash", default=""); p.set_defaults(fn=cmd_add)
     p = sub.add_parser("addshow"); p.add_argument("name"); p.add_argument("--last", default=""); p.set_defaults(fn=cmd_addshow)
     p = sub.add_parser("rmshow"); p.add_argument("name"); p.set_defaults(fn=cmd_rmshow)
     p = sub.add_parser("shows"); p.set_defaults(fn=cmd_shows)
