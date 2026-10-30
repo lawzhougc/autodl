@@ -3,7 +3,7 @@
 """gy_autodl Web 控制台 — 登记追剧/电影, 查看任务进度, 手动操作。
 依赖 gy_autodl.py (上一级目录), 复用其 Jackett/光鸭/字幕链路。
 端口 8770, 仅监听局域网。"""
-import json, os, re, sys, time, threading, subprocess, traceback
+import json, os, re, sys, time, threading, subprocess, traceback, glob
 import urllib.request, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -145,6 +145,253 @@ def get_search_task_status():
             d["data"] = dict(d["data"])
         return d
 
+_HEALTH_CACHE = {"time": 0, "data": None}
+
+def check_service_health():
+    global _HEALTH_CACHE
+    now = time.time()
+    if _HEALTH_CACHE["data"] and (now - _HEALTH_CACHE["time"] < 6):
+        return _HEALTH_CACHE["data"]
+
+    try:
+        g.CFG.update(g.load_json(g.CFG_F, {}))
+    except Exception:
+        pass
+
+    gy_ok, gy_msg = False, "未连接"
+    try:
+        gy_url = (g.CFG.get("guangya_url") or g.GY).rstrip("/") + "/api/user"
+        d = g.http_json(gy_url, timeout=3)
+        if d.get("is_logged_in") is True or not d.get("error"):
+            gy_ok, gy_msg = True, "正常"
+        else:
+            gy_msg = "未登录"
+    except Exception:
+        gy_msg = "未连接"
+
+    jt_ok, jt_msg = False, "未连接"
+    jt_url = (g.CFG.get("jackett_url") or g.JT).rstrip("/")
+
+    # 优先尝试使用 Jackett APIKey 探测官方 API
+    key = None
+    try:
+        key = g.jt_key()
+    except Exception:
+        pass
+
+    # 1. 如果有 APIKey，优先探测 Jackett API 接口 (轻量且直接检验 API 权限)
+    if key:
+        api_candidates = [
+            f"{jt_url}/api/v2.0/server/config?apikey={urllib.parse.quote(key)}",
+            f"{jt_url}/api/v2.0/indexers?configured=true&apikey={urllib.parse.quote(key)}"
+        ]
+        for test_url in api_candidates:
+            try:
+                req = urllib.request.Request(test_url, headers={"User-Agent": "autodl/health"})
+                with urllib.request.urlopen(req, timeout=4) as r:
+                    if r.status in (200, 204):
+                        jt_ok, jt_msg = True, "正常"
+                        break
+            except urllib.error.HTTPError as he:
+                if he.code in (200, 204):
+                    jt_ok, jt_msg = True, "正常"
+                    break
+                elif he.code == 401:
+                    jt_ok = False
+                    jt_msg = "APIKey错误"
+                    break
+                elif he.code in (301, 302, 303, 307, 308, 403):
+                    jt_ok = True
+                    jt_msg = "正常"
+                    break
+            except Exception:
+                pass
+
+    # 2. 如果无 APIKey 或 API 探测未果，直接探测服务端口或 Web 页面
+    if not jt_ok and jt_msg != "APIKey错误":
+        web_candidates = [
+            jt_url,
+            f"{jt_url}/UI/Dashboard",
+            f"{jt_url}/api/v2.0/server/config"
+        ]
+        for test_url in web_candidates:
+            try:
+                req = urllib.request.Request(test_url, headers={"User-Agent": "autodl/health"})
+                with urllib.request.urlopen(req, timeout=4) as r:
+                    if r.status in (200, 204, 301, 302, 303, 307, 308):
+                        jt_ok, jt_msg = True, "正常"
+                        break
+            except urllib.error.HTTPError as he:
+                # 即使返回 401/403/302 也说明端口已联通、服务正常响应中
+                if he.code in (200, 204, 301, 302, 303, 307, 308, 401, 403):
+                    jt_ok, jt_msg = True, "正常"
+                    break
+            except Exception:
+                pass
+
+    status = "normal" if (gy_ok and jt_ok) else "retry"
+    summary = "Jackett & 云盘心跳正常" if (gy_ok and jt_ok) else "服务重试中..."
+    if not jt_ok and gy_ok:
+        summary = f"Jackett 连接异常: {jt_msg}"
+    elif jt_ok and not gy_ok:
+        summary = f"云盘连接异常: {gy_msg}"
+    elif not jt_ok and not gy_ok:
+        summary = "Jackett 与云盘均未连接"
+
+    space_info = "空间充裕"
+    try:
+        import shutil
+        mr = g.CFG.get("media_root")
+        if mr and os.path.exists(mr):
+            total, used, free = shutil.disk_usage(mr)
+            free_gb = round(free / (1024**3), 1)
+            space_info = f"剩余 {free_gb} GB"
+    except Exception:
+        pass
+
+    data = {
+        "ok": gy_ok and jt_ok,
+        "status": status,
+        "summary": summary,
+        "storage": space_info,
+        "guangya": {"ok": gy_ok, "msg": gy_msg},
+        "jackett": {"ok": jt_ok, "msg": jt_msg},
+        "daemon": {"ok": True, "msg": "运行中"},
+        "time": now
+    }
+    _HEALTH_CACHE = {"time": now, "data": data}
+    return data
+
+def get_root_volumes():
+    vols = []
+    if sys.platform == "win32":
+        import string
+        from ctypes import windll
+        try:
+            bitmask = windll.kernel32.GetLogicalDrives()
+            for letter in string.ascii_uppercase:
+                if bitmask & 1:
+                    p = f"{letter}:\\"
+                    vols.append({"name": f"{letter}: 盘", "path": p})
+                bitmask >>= 1
+        except Exception:
+            vols.append({"name": "C: 盘", "path": "C:\\"})
+    else:
+        # 飞牛 NAS / Linux 常见挂载卷
+        candidates = sorted(glob.glob("/vol*") + glob.glob("/volume*"))
+        for c in candidates:
+            if os.path.isdir(c) and not os.path.basename(c).startswith("."):
+                name = os.path.basename(c)
+                vols.append({"name": f"存储空间 ({name})", "path": c})
+        for m in ["/mnt", "/media", "/data", "/home"]:
+            if os.path.isdir(m):
+                vols.append({"name": m, "path": m})
+        if not vols:
+            vols.append({"name": "系统根目录 (/)", "path": "/"})
+    return vols
+
+def list_directories(req_path=""):
+    req_path = (req_path or "").strip()
+    curr_mr = (g.CFG.get("media_root") or "").strip()
+
+    # 默认路径：优先当前配置的 media_root 或其父目录
+    if not req_path:
+        if curr_mr and os.path.isdir(curr_mr):
+            req_path = os.path.abspath(curr_mr)
+        elif curr_mr and os.path.isdir(os.path.dirname(curr_mr)):
+            req_path = os.path.abspath(os.path.dirname(curr_mr))
+        else:
+            vols = get_root_volumes()
+            req_path = vols[0]["path"] if vols else ("/" if sys.platform != "win32" else "C:\\")
+
+    req_path = os.path.abspath(req_path)
+    if not os.path.exists(req_path):
+        return {
+            "ok": False,
+            "error": f"路径不存在: {req_path}",
+            "current": req_path.replace("\\", "/") if sys.platform != "win32" else req_path,
+            "dirs": [],
+            "vols": get_root_volumes(),
+            "configured": curr_mr
+        }
+
+    if not os.path.isdir(req_path):
+        req_path = os.path.dirname(req_path)
+
+    parent = os.path.dirname(req_path)
+    if parent == req_path:
+        parent = None
+
+    dirs = []
+    IGNORED = {
+        "@appdata", "@eadir", "@snapshot", "@tmp", "lost+found",
+        "proc", "sys", "dev", "run", "$recycle.bin", "system volume information"
+    }
+
+    try:
+        with os.scandir(req_path) as it:
+            for entry in it:
+                try:
+                    if entry.name.startswith("."):
+                        continue
+                    if entry.name.lower() in IGNORED:
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        p = entry.path.replace("\\", "/") if sys.platform != "win32" else entry.path
+                        dirs.append({"name": entry.name, "path": p})
+                except (PermissionError, OSError):
+                    continue
+    except PermissionError:
+        return {
+            "ok": False,
+            "error": f"无权限访问: {req_path}",
+            "current": req_path.replace("\\", "/") if sys.platform != "win32" else req_path,
+            "parent": (parent.replace("\\", "/") if sys.platform != "win32" else parent) if parent else None,
+            "dirs": [],
+            "vols": get_root_volumes(),
+            "configured": curr_mr
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e),
+            "current": req_path.replace("\\", "/") if sys.platform != "win32" else req_path,
+            "parent": (parent.replace("\\", "/") if sys.platform != "win32" else parent) if parent else None,
+            "dirs": [],
+            "vols": get_root_volumes(),
+            "configured": curr_mr
+        }
+
+    dirs.sort(key=lambda x: x["name"].lower())
+
+    norm_current = req_path.replace("\\", "/") if sys.platform != "win32" else req_path
+    norm_parent = (parent.replace("\\", "/") if sys.platform != "win32" else parent) if parent else None
+
+    return {
+        "ok": True,
+        "current": norm_current,
+        "parent": norm_parent,
+        "dirs": dirs,
+        "vols": get_root_volumes(),
+        "configured": curr_mr
+    }
+
+def create_directory(parent, name):
+    parent = (parent or "").strip()
+    name = (name or "").strip()
+    if not parent or not name:
+        return {"ok": False, "error": "父路径和文件夹名称不能为空"}
+    if "/" in name or "\\" in name or name in (".", ".."):
+        return {"ok": False, "error": "文件夹名称不能包含特殊路径字符"}
+    target = os.path.join(parent, name)
+    if os.path.exists(target):
+        return {"ok": False, "error": "该文件夹已存在"}
+    try:
+        os.makedirs(target, exist_ok=True)
+        return {"ok": True, "path": target.replace("\\", "/") if sys.platform != "win32" else target}
+    except Exception as e:
+        return {"ok": False, "error": f"创建失败: {e}"}
+
 def wishes():
     return g.load_json(WISH_F, {})
 
@@ -217,14 +464,34 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/api/tasks":
                 st = g.state()
                 tasks = []
+                trs = g.gy_transfers() if any(t.get("stage") == "nas" for t in st.get("tasks", {}).values()) else {}
                 for k, t in st["tasks"].items():
                     e = {"key": k, "label": t.get("label"), "stage": t.get("stage"),
                          "kind": t.get("kind"), "added": t.get("added"), "error": t.get("error")}
                     if t.get("stage") == "nas":
-                        trs = g.gy_transfers()
-                        e["nas"] = [{"file": os.path.basename(x["file"]),
-                                     "percent": trs.get(str(x.get("nasTaskId")), {}).get("percent")}
-                                    for x in t.get("nas", [])]
+                        nas_list = []
+                        for x in t.get("nas", []):
+                            tr = trs.get(str(x.get("nasTaskId")), {})
+                            pct = tr.get("percent")
+                            sp = tr.get("speed") or tr.get("downloadSpeed") or tr.get("rate")
+                            sp_str = ""
+                            if sp:
+                                try:
+                                    sp_val = float(sp)
+                                    if sp_val > 1024 * 1024:
+                                        sp_str = f"{round(sp_val / (1024 * 1024), 1)} MB/s"
+                                    elif sp_val > 1024:
+                                        sp_str = f"{round(sp_val / 1024, 1)} KB/s"
+                                    elif sp_val > 0:
+                                        sp_str = f"{int(sp_val)} B/s"
+                                except Exception:
+                                    sp_str = str(sp)
+                            nas_list.append({
+                                "file": os.path.basename(x["file"]),
+                                "percent": pct,
+                                "speed": sp_str
+                            })
+                        e["nas"] = nas_list
                     tasks.append(e)
                 tasks.sort(key=lambda x: -(x.get("added") or 0))
                 return self._json(200, tasks)
@@ -263,6 +530,12 @@ class H(BaseHTTPRequestHandler):
                                             "tail": [], "error": str(ex)})
             if self.path == "/api/search/status":
                 return self._json(200, get_search_task_status())
+            if self.path == "/api/health":
+                return self._json(200, check_service_health())
+            if self.path.startswith("/api/fs/dirs"):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                req_path = (qs.get("path", [""])[0] or "").strip()
+                return self._json(200, list_directories(req_path))
             if self.path.startswith("/api/search?"):
                 q = urllib.parse.unquote(self.path.split("q=", 1)[1])
                 t = start_search_task(q)
@@ -336,12 +609,17 @@ class H(BaseHTTPRequestHandler):
                             v = [x for x in v if x in ("2160p", "1080p", "other")]
                     elif k in ("media_root", "cloud_root"):
                         v = str(v).strip()
-                        if k == "media_root" and v and not v.startswith("/"):
+                        if k == "media_root" and v and not v.startswith("/") and not (len(v) > 1 and v[1] == ":"):
                             v = "/" + v
                         if not v: continue
                     updates[k] = v
                 g.save_cfg(updates)
                 return self._json(200, {"ok": True, "cfg": {k: g.CFG.get(k) for k in CONFIG_KEYS}})
+            elif self.path == "/api/fs/mkdir":
+                parent = (body.get("parent") or "").strip()
+                name = (body.get("name") or "").strip()
+                res = create_directory(parent, name)
+                return self._json(200 if res.get("ok") else 400, res)
             elif self.path == "/api/task/delete":
                 key = (body.get("key") or "").strip()
                 if not key: return self._json(400, {"error": "缺少 key"})

@@ -16,8 +16,10 @@ __pycache__/
 .venv/
 venv/
 
-# 编辑器
+# 编辑器与开发工具
 .vscode/
 .idea/
 *.swp
 .DS_Store
+.agents/
+.entire/
