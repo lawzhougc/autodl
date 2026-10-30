@@ -207,13 +207,14 @@ html[data-theme=light] .bar{background:rgba(0,0,0,0.06);border-color:rgba(0,0,0,
 .compound-btn.ghost:hover{background:var(--hov);color:var(--tx)}
 
 /* ---- 搜索结果视窗与过滤标签 ---- */
-.search-viewport{max-height:480px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);margin-top:10px;position:relative;scrollbar-width:thin}
+.search-viewport{max-height:480px;overflow-y:auto;overflow-x:hidden;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);margin-top:10px;position:relative;scrollbar-width:thin}
 .search-sticky-head{position:sticky;top:0;z-index:10;background:var(--surface-2);border-bottom:1px solid var(--line);padding:8px 12px;backdrop-filter:blur(8px)}
-.search-filter-pills{display:flex;gap:6px;margin-top:6px}
-.filter-pill{padding:3px 10px;font-size:11.5px;font-weight:600;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--dim);cursor:pointer;transition:all 0.15s ease;user-select:none}
+.search-filter-pills{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.filter-pill{padding:3px 10px;font-size:11.5px;font-weight:600;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--dim);cursor:pointer;transition:all 0.15s ease;user-select:none;white-space:nowrap}
 .filter-pill:hover{color:var(--tx);border-color:var(--acc)}
 .filter-pill.on{background:var(--acc);color:#fff;border-color:var(--acc)}
 .search-item-list{padding:6px 10px}
+.search-item-title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;max-width:100%}
 
 /* ---- 任务特征标签与语义化徽章 ---- */
 .spec-tag{font-size:10px;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,0.06);border:1px solid var(--line);color:var(--dim);letter-spacing:0.2px;white-space:nowrap}
@@ -231,18 +232,18 @@ html[data-theme=light] .badge-done{background:#ecfdf5;color:#047857;border-color
 html[data-theme=light] .badge-fail{background:#fef2f2;color:#b91c1c;border-color:#fecaca}
 
 /* ---- 任务表格与速率进度 ---- */
-.task-table{width:100%;border-collapse:collapse}
-.task-table td{padding:9px 6px;border-bottom:1px solid var(--rowline);vertical-align:middle}
-.task-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:240px}
+.task-table{width:100%;border-collapse:collapse;table-layout:fixed}
+.task-table td{padding:9px 6px;border-bottom:1px solid var(--rowline);vertical-align:middle;overflow:hidden}
+.task-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:100%}
 .task-speed{font-size:11px;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;color:var(--acc);white-space:nowrap}
 .task-pct{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums;min-width:34px;text-align:right}
 
 .panel-stream .item{padding:9px 10px;border-bottom:1px solid var(--rowline);display:flex;justify-content:space-between;gap:10px;align-items:center}
 .panel-stream .item:last-child{border-bottom:none}
 
-#searchRes{max-height:480px;overflow-y:auto;padding-right:4px}
+#searchRes{max-height:480px;overflow-y:auto;overflow-x:hidden;padding-right:0}
 #searchRes .item,.item{padding:8px;border-bottom:1px solid var(--rowline);display:flex;justify-content:space-between;gap:10px;align-items:center}
-#searchRes .t,.item .t{flex:1;min-width:0}
+#searchRes .t,.item .t{flex:1;min-width:0;overflow:hidden}
 #searchRes .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13.5px}
 .flash{padding:8px 12px;border-radius:8px;margin:0 0 14px;font-size:13.5px;display:none}
 .flash.ok{display:block;background:var(--flash-ok-bg);color:var(--flash-ok-tx)}
@@ -344,7 +345,8 @@ a{color:var(--acc);text-decoration:none}
 .log-lvl-info{color:#60a5fa;font-weight:600}
 .log-lvl-ok{color:#34d399;font-weight:600}
 .log-path{color:#38bdf8;text-decoration:underline dotted rgba(56,189,248,0.4)}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid2{display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:16px}
+.grid2 > *{min-width:0}
 .lib-split{display:grid;grid-template-columns:6fr 4fr;gap:18px;align-items:start}
 .lib-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px}
 .seg-control{display:inline-flex;background:var(--surface-1);border:1px solid var(--surface-border);border-radius:9px;padding:3px;gap:4px}
@@ -481,20 +483,23 @@ html[data-theme=light] .wish-row:hover{background:rgba(0,0,0,0.015)}
 }
 .modal-close:hover{background:var(--hov);color:var(--tx)}
 
-/* 存储卷快捷导航 */
+/* 存储卷快捷导航 (下拉列表模式) */
 .folder-vols{
   padding:8px 16px;background:var(--surface-2);border-bottom:1px solid var(--rowline);
-  display:flex;align-items:center;gap:8px;font-size:12px;overflow-x:auto;scrollbar-width:none;
+  display:flex;align-items:center;gap:10px;font-size:12.5px;
 }
-.folder-vols-label{color:var(--dim);flex-shrink:0;font-size:11.5px}
-.folder-vols-list{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
-.folder-vol-pill{
-  background:var(--surface-1);border:1px solid var(--line);border-radius:6px;
-  padding:3px 9px;font-size:11.5px;color:var(--tx);cursor:pointer;white-space:nowrap;
-  transition:all 0.15s ease;display:inline-flex;align-items:center;gap:4px;
+.folder-vols-label{color:var(--dim);flex-shrink:0;font-size:12px;font-weight:500;display:flex;align-items:center;gap:5px;user-select:none}
+.folder-vols-select-wrap{position:relative;flex:1;max-width:340px;display:inline-flex;align-items:center}
+.folder-vols-select{
+  width:100%;appearance:none;-webkit-appearance:none;background:var(--surface-1);
+  border:1px solid var(--line);border-radius:7px;color:var(--tx);
+  padding:5px 28px 5px 10px;font-size:12.5px;font-weight:500;
+  cursor:pointer;outline:none;transition:all 0.15s ease;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.folder-vol-pill:hover{background:var(--hov);border-color:var(--acc);color:var(--acc)}
-.folder-vol-pill.active{background:rgba(59,130,246,0.15);border-color:var(--acc);color:var(--acc);font-weight:600}
+.folder-vols-select:hover{border-color:var(--acc)}
+.folder-vols-select:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-glow)}
+.folder-vols-arrow{position:absolute;right:9px;pointer-events:none;width:13px;height:13px;color:var(--dim);stroke-width:2.2}
 
 /* 面包屑导航栏 */
 .folder-nav-bar{
@@ -630,7 +635,7 @@ html[data-theme=light] .wish-row:hover{background:rgba(0,0,0,0.015)}
     </div>
     <div class="brand-text">
       <span class="brand-name">影视追踪</span>
-      <span class="badge-ver">v0.2.18</span>
+      <span class="badge-ver">v0.2.19</span>
     </div>
   </div>
   <div class="sub">搜索 · 离线 · NAS · 字幕</div>
@@ -719,9 +724,9 @@ html[data-theme=light] .wish-row:hover{background:rgba(0,0,0,0.015)}
   </div>
 
   <!-- 第二层：高频工作区 (Quick Action & Active Tasks) -->
-  <div class="grid2 mb" style="align-items:stretch">
+  <div class="grid2 mb" style="align-items:start">
     <!-- 全能搜索登记框 (带清晰的推荐/降级切换) -->
-    <div class="card" style="display:flex;flex-direction:column;margin-bottom:0">
+    <div class="card" style="display:flex;flex-direction:column;margin-bottom:0;min-width:0">
       <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> 全能搜索登记
         <span class="dim" style="font-size:11px;font-weight:normal;margin-left:auto">4K首选 · 降级推荐</span>
       </h2>
@@ -748,11 +753,11 @@ html[data-theme=light] .wish-row:hover{background:rgba(0,0,0,0.015)}
     </div>
 
     <!-- 进行中任务队列 (带速率、阶段胶囊、动态进度条) -->
-    <div class="card" style="display:flex;flex-direction:column;margin-bottom:0">
+    <div class="card" style="display:flex;flex-direction:column;margin-bottom:0;min-width:0">
       <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 进行中任务队列
         <span class="pill" id="kpiActivePill" style="margin-left:6px">0</span>
       </h2>
-      <div style="flex:1;min-height:220px;max-height:480px;overflow-y:auto">
+      <div style="min-height:220px;max-height:520px;overflow-y:auto">
         <table class="task-table">
           <thead><tr><th>任务 / 资源特征</th><th style="width:145px">阶段状态 / 动态进度</th><th style="width:36px;text-align:right"></th></tr></thead>
           <tbody id="taskList"></tbody>
@@ -1176,10 +1181,17 @@ html[data-theme=light] .wish-row:hover{background:rgba(0,0,0,0.015)}
       <button type="button" class="modal-close" onclick="closeFolderPicker()" title="关闭">✕</button>
     </div>
 
-    <!-- 快速卷跳转 -->
+    <!-- 快速卷跳转 (下拉选择模式) -->
     <div class="folder-vols" id="folderVols">
-      <span class="folder-vols-label">存储空间:</span>
-      <div class="folder-vols-list" id="folderVolsList"></div>
+      <label class="folder-vols-label" for="folderVolsSelect">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:14px;height:14px"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+        <span>存储空间:</span>
+      </label>
+      <div class="folder-vols-select-wrap">
+        <select id="folderVolsSelect" class="folder-vols-select" onchange="onFolderVolSelect(this.value)">
+        </select>
+        <svg class="folder-vols-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
     </div>
 
     <!-- 面包屑路径条 -->
@@ -1649,20 +1661,62 @@ function selectFolderItem(path, el){
   document.querySelectorAll('.folder-item').forEach(it => it.classList.toggle('selected', it === el));
 }
 
+function onFolderVolSelect(path){
+  if(path){
+    loadFolderDirectory(path);
+  }
+}
+
 function renderFolderVolumes(vols, currentPath){
-  const list = $('#folderVolsList');
-  if(!list) return;
-  list.innerHTML = '';
+  const sel = $('#folderVolsSelect');
+  if(!sel) return;
+  sel.innerHTML = '';
+
+  if(!vols || !vols.length){
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '暂无可用存储空间';
+    sel.appendChild(opt);
+    return;
+  }
+
+  // 匹配当前路径归属的存储卷 (最长前缀匹配)
+  let matchedVol = null;
+  let maxMatchLen = -1;
+  const normCurrent = (currentPath || '').replace(/\\/g, '/').replace(/\/+$/, '') || '/';
+
   vols.forEach(v => {
-    const pill = document.createElement('button');
-    pill.type = 'button';
-    pill.className = 'folder-vol-pill';
-    const isActive = currentPath && (currentPath === v.path || currentPath.startsWith(v.path));
-    if(isActive) pill.classList.add('active');
-    pill.innerHTML = `<span>${esc(v.name)}</span>`;
-    pill.onclick = () => loadFolderDirectory(v.path);
-    list.appendChild(pill);
+    const normVol = (v.path || '').replace(/\\/g, '/').replace(/\/+$/, '') || '/';
+    if(normCurrent === normVol || normCurrent.startsWith(normVol === '/' ? '/' : normVol + '/')){
+      if(normVol.length > maxMatchLen){
+        maxMatchLen = normVol.length;
+        matchedVol = v;
+      }
+    }
   });
+
+  vols.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v.path;
+    let label = v.name || v.path;
+    if(v.name && v.path && v.name !== v.path && !v.name.includes(v.path)){
+      label = `${v.name}  [${v.path}]`;
+    }
+    opt.textContent = label;
+    if(matchedVol && matchedVol.path === v.path){
+      opt.selected = true;
+    }
+    sel.appendChild(opt);
+  });
+
+  // 若当前路径不在已知存储卷列表中，插入当前路径项
+  if(!matchedVol && currentPath){
+    const opt = document.createElement('option');
+    opt.value = currentPath;
+    opt.textContent = `当前位置 (${currentPath})`;
+    opt.selected = true;
+    sel.insertBefore(opt, sel.firstChild);
+  }
 }
 
 function renderFolderCrumbs(p){
@@ -1795,12 +1849,12 @@ function renderSearchResults(q, d){
   let head = `
     <div class="search-sticky-head">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <div style="min-width:0;flex:1">
+        <div style="min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
           <span style="font-size:12.5px;font-weight:600;color:var(--tx)">「${esc(q)}」</span>
           <span class="dim" style="font-size:11.5px">· 共 ${d.total || totalCount} 条 · ${d.kind==='tv'?'剧集':'电影'}</span>
           ${d.recognized ? `<span class="dim" style="font-size:11px;margin-left:4px">(识别: <b>${esc(d.recognized)}</b>)</span>` : ''}
         </div>
-        <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 收起视窗</button>
+        <button class="mini ghost" style="flex-shrink:0" onclick="$('#searchRes').style.display='none'">✕ 收起视窗</button>
       </div>
       <div class="search-filter-pills">
         <span class="filter-pill ${_searchFilter==='all'?'on':''}" onclick="applySearchFilter('all')">全部 (${totalCount})</span>
@@ -1816,15 +1870,15 @@ function renderSearchResults(q, d){
   // 4K 推荐卡片 (全部或仅4K模式下显示)
   if((_searchFilter === 'all' || _searchFilter === '4k') && d.best){
     body += `
-      <div class="item" style="background:var(--hov);border:1px solid rgba(59,130,246,0.35);border-radius:8px;padding:9px 12px;margin-bottom:8px">
-        <div class="t">
+      <div class="item" style="background:var(--hov);border:1px solid rgba(59,130,246,0.35);border-radius:8px;padding:9px 12px;margin-bottom:8px;min-width:0">
+        <div class="t" style="min-width:0;overflow:hidden">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
             <span class="tag cloud" style="font-size:10.5px">★ 4K首选推荐</span>
             ${d.has_4k ? '<span class="spec-tag">2160p HEVC</span>' : ''}
           </div>
-          <b style="font-size:13px">${esc(d.best)}</b>
+          <b class="search-item-title" title="${esc(d.best)}">${esc(d.best)}</b>
         </div>
-        <button class="mini" onclick="downloadBest('${esc(q)}')">⬇ 立即下载推荐</button>
+        <button class="mini" style="flex-shrink:0" onclick="downloadBest('${esc(q)}')">⬇ 立即下载推荐</button>
       </div>
     `;
   }
@@ -1832,12 +1886,12 @@ function renderSearchResults(q, d){
   // 若无4K资源，提供清晰降级警告与一键保持追踪
   if(!q4k.length && lo1080.length && _searchFilter !== '1080'){
     body += `
-      <div class="item" style="background:var(--flash-err-bg);border:1px solid var(--bad);border-radius:8px;padding:10px 12px;margin-bottom:8px">
-        <div class="t" style="color:var(--bad)">
+      <div class="item" style="background:var(--flash-err-bg);border:1px solid var(--bad);border-radius:8px;padding:10px 12px;margin-bottom:8px;min-width:0">
+        <div class="t" style="color:var(--bad);min-width:0;overflow:hidden">
           <div style="font-weight:700;font-size:13px">⚠️ 未检索到 4K (2160p) 资源</div>
-          <div class="dim" style="font-size:11.5px;color:var(--bad)">已自动列出 ${lo1080.length} 条优质 1080p 备选，可直接降级或继续追踪</div>
+          <div class="dim" style="font-size:11.5px;color:var(--bad);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">已自动列出 ${lo1080.length} 条优质 1080p 备选，可直接降级或继续追踪</div>
         </div>
-        <div style="display:flex;gap:6px">
+        <div style="display:flex;gap:6px;flex-shrink:0">
           <button class="mini" style="background:var(--warn)" onclick="download1080('${esc(q)}')">⬇ 降级下载 1080p</button>
           <button class="mini ghost" onclick="wishTrack4K('${esc(q)}')">⏳ 保持追踪4K</button>
         </div>
@@ -1853,17 +1907,17 @@ function renderSearchResults(q, d){
       renderedItems++;
       const langs = r.langs && r.langs.length ? ` · ${r.langs.join(',').toUpperCase()}` : '';
       body += `
-        <div class="item">
-          <div class="t">
+        <div class="item" style="min-width:0">
+          <div class="t" style="min-width:0;overflow:hidden">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px">
               <span class="spec-tag" style="background:rgba(59,130,246,0.15);color:#60a5fa;border-color:rgba(59,130,246,0.3)">4K</span>
               ${r.hdr ? '<span class="spec-tag">HDR</span>' : ''}
               ${r.codec ? `<span class="spec-tag">${esc(r.codec.toUpperCase())}</span>` : ''}
-              <b style="font-size:13px">${esc(r.title)}</b>
             </div>
-            <span class="dim" style="font-size:11.5px">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${langs}</span>
+            <b class="search-item-title" title="${esc(r.title)}">${esc(r.title)}</b>
+            <span class="dim" style="font-size:11.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}${langs}</span>
           </div>
-          <button class="mini" onclick="downloadItem('${esc(q)}','4k',${idx})">⬇ 下载</button>
+          <button class="mini" style="flex-shrink:0" onclick="downloadItem('${esc(q)}','4k',${idx})">⬇ 下载</button>
         </div>
       `;
     });
@@ -1877,16 +1931,16 @@ function renderSearchResults(q, d){
     lo1080.forEach((r, idx)=>{
       renderedItems++;
       body += `
-        <div class="item">
-          <div class="t">
+        <div class="item" style="min-width:0">
+          <div class="t" style="min-width:0;overflow:hidden">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px">
               <span class="spec-tag" style="background:rgba(6,182,212,0.15);color:#22d3ee;border-color:rgba(6,182,212,0.3)">1080p</span>
               ${r.codec ? `<span class="spec-tag">${esc(r.codec.toUpperCase())}</span>` : ''}
-              <b style="font-size:13px">${esc(r.title)}</b>
             </div>
-            <span class="dim" style="font-size:11.5px">1080p · ${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}</span>
+            <b class="search-item-title" title="${esc(r.title)}">${esc(r.title)}</b>
+            <span class="dim" style="font-size:11.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">1080p · ${r.seeders}做种 · ${r.size_gb}GB · ${r.idx}</span>
           </div>
-          <button class="mini ghost" onclick="downloadItem('${esc(q)}','1080',${idx})">⬇ 降级下载</button>
+          <button class="mini ghost" style="flex-shrink:0" onclick="downloadItem('${esc(q)}','1080',${idx})">⬇ 降级下载</button>
         </div>
       `;
     });
@@ -1910,9 +1964,9 @@ async function checkSearchStatus(){
       const sec = Math.round((Date.now() - (st.start_time * 1000)) / 1000);
       box.innerHTML = `
         <div class="search-sticky-head">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <span class="dim">⏳ 正在后台检索 6 个 Jackett 索引器 + 原生源: <b>「${esc(st.q)}」</b> (${sec}s)</span>
-            <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 隐藏</button>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span class="dim" style="min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="⏳ 正在后台检索 6 个 Jackett 索引器 + 原生源: 「${esc(st.q)}」 (${sec}s)">⏳ 正在后台检索 6 个 Jackett 索引器 + 原生源: <b>「${esc(st.q)}」</b> (${sec}s)</span>
+            <button class="mini ghost" style="flex-shrink:0" onclick="$('#searchRes').style.display='none'">✕ 隐藏</button>
           </div>
         </div>
         <div style="padding:24px;text-align:center">
@@ -1929,9 +1983,9 @@ async function checkSearchStatus(){
       box.style.display = 'block';
       box.innerHTML = `
         <div class="search-sticky-head">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <span style="color:var(--bad)">搜索「${esc(st.q)}」失败: ${esc(st.error)}</span>
-            <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 关闭</button>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span style="color:var(--bad);min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">搜索「${esc(st.q)}」失败: ${esc(st.error)}</span>
+            <button class="mini ghost" style="flex-shrink:0" onclick="$('#searchRes').style.display='none'">✕ 关闭</button>
           </div>
         </div>
       `;
@@ -1942,9 +1996,11 @@ async function checkSearchStatus(){
 async function doSearch(){
   const q=$('#wishName').value.trim(); if(!q)return flash('先填搜索词',false);
   const box=$('#searchRes');box.style.display='block';
-  box.innerHTML=`<div class="row" style="justify-content:space-between">
-    <span class="dim">⏳ 正在后台搜索: <b>「${esc(q)}」</b> (约30-60秒，窗口关闭不影响)…</span>
-    <button class="mini ghost" onclick="$('#searchRes').style.display='none'">✕ 隐藏</button>
+  box.innerHTML=`<div class="search-sticky-head">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span class="dim" style="min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="⏳ 正在后台搜索: 「${esc(q)}」 (约30-60秒，窗口关闭不影响)…">⏳ 正在后台搜索: <b>「${esc(q)}」</b> (约30-60秒，窗口关闭不影响)…</span>
+      <button class="mini ghost" style="flex-shrink:0" onclick="$('#searchRes').style.display='none'">✕ 隐藏</button>
+    </div>
   </div>`;
   try{
     await jpost('/api/search', {q});
@@ -2256,8 +2312,8 @@ async function refresh(){
       }
 
       return `<tr>
-        <td style="padding:10px 8px">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px">
+        <td style="padding:10px 8px;min-width:0;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px;min-width:0">
             <b class="task-title" title="${esc(t.label||t.kind)}">${esc(t.label||t.kind)}</b>
             <div style="display:inline-flex;gap:4px;flex-wrap:wrap">
               ${tags.map(tg => `<span class="spec-tag">${esc(tg)}</span>`).join('')}
