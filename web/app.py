@@ -3,8 +3,8 @@
 """gy_autodl Web 控制台 — 登记追剧/电影, 查看任务进度, 手动操作。
 依赖 gy_autodl.py (上一级目录), 复用其 Jackett/光鸭/字幕链路。
 端口 8770, 仅监听局域网。"""
-import json, os, re, sys, time, threading, subprocess, traceback, glob
-import urllib.request, urllib.parse
+import json, os, re, sys, time, threading, subprocess, traceback, glob, socket
+import urllib.request, urllib.parse, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -170,51 +170,53 @@ def check_service_health():
         gy_msg = "未连接"
 
     jt_ok, jt_msg = False, "未连接"
-    jt_url = (g.CFG.get("jackett_url") or g.JT).rstrip("/")
+    jt_url = (g.CFG.get("jackett_url") or g.JT or "http://127.0.0.1:9117").rstrip("/")
 
-    # 优先尝试使用 Jackett APIKey 探测官方 API
-    key = None
-    try:
-        key = g.jt_key()
-    except Exception:
-        pass
+    # 优先尝试使用 Jackett APIKey 探测官方 Torznab 协议 caps 端点 (不依赖 Cookie，最精准且高效)
+    key = (g.CFG.get("jackett_apikey") or "").strip()
+    if not key:
+        try:
+            key = g.jt_key()
+        except Exception:
+            pass
 
-    # 1. 如果有 APIKey，优先探测 Jackett API 接口 (轻量且直接检验 API 权限)
+    # 1. 如果有 APIKey，探测官方 Torznab caps 规范接口
     if key:
-        api_candidates = [
-            f"{jt_url}/api/v2.0/server/config?apikey={urllib.parse.quote(key)}",
-            f"{jt_url}/api/v2.0/indexers?configured=true&apikey={urllib.parse.quote(key)}"
-        ]
-        for test_url in api_candidates:
-            try:
-                req = urllib.request.Request(test_url, headers={"User-Agent": "autodl/health"})
-                with urllib.request.urlopen(req, timeout=4) as r:
-                    if r.status in (200, 204):
-                        jt_ok, jt_msg = True, "正常"
-                        break
-            except urllib.error.HTTPError as he:
-                if he.code in (200, 204):
+        test_url = f"{jt_url}/api/v2.0/indexers/all/results/torznab/api?apikey={urllib.parse.quote(key)}&t=caps"
+        try:
+            req = urllib.request.Request(test_url, headers={"User-Agent": "autodl/health"})
+            with urllib.request.urlopen(req, timeout=4) as r:
+                body = r.read().decode("utf-8", "ignore")
+                if "<caps" in body:
                     jt_ok, jt_msg = True, "正常"
-                    break
-                elif he.code == 401:
-                    jt_ok = False
-                    jt_msg = "APIKey错误"
-                    break
-                elif he.code in (301, 302, 303, 307, 308, 403):
-                    jt_ok = True
-                    jt_msg = "正常"
-                    break
-            except Exception:
-                pass
+                elif "Invalid API Key" in body or "<error code=" in body:
+                    jt_ok, jt_msg = False, "APIKey错误"
+                elif r.status in (200, 204):
+                    jt_ok, jt_msg = True, "正常"
+        except urllib.error.HTTPError as he:
+            if he.code == 401:
+                jt_ok, jt_msg = False, "APIKey错误"
+            else:
+                try:
+                    err_b = he.read().decode("utf-8", "ignore")
+                    if "Invalid API Key" in err_b:
+                        jt_ok, jt_msg = False, "APIKey错误"
+                    elif he.code == 400 and "Cookies required" in err_b:
+                        jt_ok, jt_msg = True, "正常"
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-    # 2. 如果无 APIKey 或 API 探测未果，直接探测服务端口或 Web 页面
+    # 2. 如果无 APIKey 或 API 探测未果，使用备用端点与 Web / 端口探测
     if not jt_ok and jt_msg != "APIKey错误":
-        web_candidates = [
-            jt_url,
+        candidates = [
+            f"{jt_url}/api/v2.0/indexers/all/results/torznab/api?t=caps",
+            f"{jt_url}/api/v2.0/server/config",
             f"{jt_url}/UI/Dashboard",
-            f"{jt_url}/api/v2.0/server/config"
+            jt_url
         ]
-        for test_url in web_candidates:
+        for test_url in candidates:
             try:
                 req = urllib.request.Request(test_url, headers={"User-Agent": "autodl/health"})
                 with urllib.request.urlopen(req, timeout=4) as r:
@@ -222,12 +224,30 @@ def check_service_health():
                         jt_ok, jt_msg = True, "正常"
                         break
             except urllib.error.HTTPError as he:
-                # 即使返回 401/403/302 也说明端口已联通、服务正常响应中
                 if he.code in (200, 204, 301, 302, 303, 307, 308, 401, 403):
                     jt_ok, jt_msg = True, "正常"
                     break
+                try:
+                    err_b = he.read().decode("utf-8", "ignore")
+                    # Jackett Kestrel 框架在无 Cookie 访问时的标准响应即为 400 Cookies required
+                    if he.code == 400 and "Cookies required" in err_b:
+                        jt_ok, jt_msg = True, "正常"
+                        break
+                except Exception:
+                    pass
             except Exception:
                 pass
+
+    # 3. 兜底探测：TCP Socket 端口在线检测
+    if not jt_ok and jt_msg != "APIKey错误":
+        try:
+            p = urllib.parse.urlsplit(jt_url)
+            host = p.hostname or "127.0.0.1"
+            port = p.port or 9117
+            with socket.create_connection((host, port), timeout=2):
+                jt_ok, jt_msg = True, "正常"
+        except Exception:
+            pass
 
     status = "normal" if (gy_ok and jt_ok) else "retry"
     summary = "Jackett & 云盘心跳正常" if (gy_ok and jt_ok) else "服务重试中..."
@@ -614,6 +634,8 @@ class H(BaseHTTPRequestHandler):
                         if not v: continue
                     updates[k] = v
                 g.save_cfg(updates)
+                global _HEALTH_CACHE
+                _HEALTH_CACHE = {"time": 0, "data": None}
                 return self._json(200, {"ok": True, "cfg": {k: g.CFG.get(k) for k in CONFIG_KEYS}})
             elif self.path == "/api/fs/mkdir":
                 parent = (body.get("parent") or "").strip()
